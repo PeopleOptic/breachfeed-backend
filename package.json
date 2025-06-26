@@ -7,9 +7,11 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "test": "jest",
+    "build": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
-    "setup": "node setup.js"
+    "setup": "node setup.js",
+    "postinstall": "prisma generate"
   },
   "keywords": ["rss", "cybersecurity", "notifications", "api"],
   "author": "",
