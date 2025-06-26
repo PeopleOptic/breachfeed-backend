@@ -59,8 +59,36 @@ async function fetchAndProcessFeed(feed) {
           }
         }
         
+        // Extract image URL from various RSS sources
+        let imageUrl = null;
+        
+        // Check for enclosure (common in RSS feeds)
+        if (item.enclosure && item.enclosure.url && item.enclosure.type && item.enclosure.type.startsWith('image/')) {
+          imageUrl = item.enclosure.url;
+        }
+        // Check for direct image field
+        else if (item.image && typeof item.image === 'string') {
+          imageUrl = item.image;
+        }
+        // Check for media thumbnail (Media RSS extension)
+        else if (item['media:thumbnail'] && item['media:thumbnail']['@_url']) {
+          imageUrl = item['media:thumbnail']['@_url'];
+        }
+        // Check for iTunes image
+        else if (item.itunes && item.itunes.image) {
+          imageUrl = item.itunes.image;
+        }
+        // Extract first image from content/description
+        else if (item.content || item.description) {
+          const contentToSearch = item.content || item.description || '';
+          const imgMatch = contentToSearch.match(/<img[^>]+src="([^"]+)"/i);
+          if (imgMatch && imgMatch[1]) {
+            imageUrl = imgMatch[1];
+          }
+        }
+        
         // Log article data for debugging
-        logger.info(`Creating article: ${item.title} from ${feed.name}`);
+        logger.info(`Creating article: ${item.title} from ${feed.name}${imageUrl ? ` with image: ${imageUrl}` : ''}`);
         
         // Create new article
         const article = await prisma.article.create({
@@ -73,7 +101,8 @@ async function fetchAndProcessFeed(feed) {
             author: item.creator || item.author || null,
             publishedAt,
             guid: item.guid || item.link,
-            categories
+            categories,
+            imageUrl
           }
         });
         
