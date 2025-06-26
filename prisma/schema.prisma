@@ -1,0 +1,307 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String         @id @default(cuid())
+  email             String         @unique
+  name              String?
+  phoneNumber       String?
+  apnsDeviceToken   String?
+  isActive          Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  
+  subscriptions     Subscription[]
+  notifications     Notification[]
+}
+
+model RssFeed {
+  id                String         @id @default(cuid())
+  name              String
+  url               String         @unique
+  category          String?
+  lastFetchedAt     DateTime?
+  isActive          Boolean        @default(true)
+  fetchInterval     Int            @default(300) // seconds
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  
+  articles          Article[]
+}
+
+model Article {
+  id                String         @id @default(cuid())
+  feedId            String
+  title             String
+  link              String         @unique
+  description       String?
+  content           String?        @db.Text
+  author            String?
+  publishedAt       DateTime
+  guid              String?
+  categories        String[]
+  imageUrl          String?        // Article thumbnail/featured image
+  location          String?        // Extracted location mentions
+  agencies          String[]       // Government agencies mentioned
+  severity          SeverityLevel? @default(MEDIUM)
+  summary           String?        @db.Text // AI-generated summary
+  recommendations   String?        @db.Text // AI-generated remediation steps
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  
+  feed              RssFeed        @relation(fields: [feedId], references: [id])
+  matchedKeywords   MatchedKeyword[]
+  matchedCompanies  MatchedCompany[]
+  matchedAgencies   MatchedAgency[]
+  matchedLocations  MatchedLocation[]
+  notifications     Notification[]
+  incidents         Incident[]
+  
+  @@index([publishedAt])
+  @@index([feedId])
+  @@index([severity])
+  @@index([location])
+}
+
+model Company {
+  id                String         @id @default(cuid())
+  name              String         @unique
+  aliases           String[]       // Alternative names, acronyms
+  domain            String?
+  isActive          Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  
+  subscriptions     Subscription[]
+  matchedCompanies  MatchedCompany[]
+}
+
+model Keyword {
+  id                String         @id @default(cuid())
+  term              String         @unique
+  category          String?        // breach, vulnerability, incident, etc.
+  isActive          Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  
+  subscriptions     Subscription[]
+  matchedKeywords   MatchedKeyword[]
+}
+
+model Subscription {
+  id                String         @id @default(cuid())
+  userId            String
+  type              SubscriptionType
+  targetId          String?        // companyId, keywordId, agencyId, or locationId
+  emailEnabled      Boolean        @default(true)
+  smsEnabled        Boolean        @default(false)
+  pushEnabled       Boolean        @default(false)
+  isActive          Boolean        @default(true)
+  severityFilter    SeverityLevel? // Only alert for this severity and above
+  locationFilter    String?        // Optional location filter
+  keywordFilters    String[]       // Additional keyword filters
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  
+  user              User           @relation(fields: [userId], references: [id])
+  company           Company?       @relation(fields: [targetId], references: [id])
+  keyword           Keyword?       @relation(fields: [targetId], references: [id])
+  agency            Agency?        @relation(fields: [targetId], references: [id])
+  location          Location?      @relation(fields: [targetId], references: [id])
+  
+  @@unique([userId, type, targetId])
+  @@index([userId])
+  @@index([targetId])
+}
+
+model MatchedKeyword {
+  id                String         @id @default(cuid())
+  articleId         String
+  keywordId         String
+  matchContext      String?        // The sentence/paragraph where match was found
+  createdAt         DateTime       @default(now())
+  
+  article           Article        @relation(fields: [articleId], references: [id])
+  keyword           Keyword        @relation(fields: [keywordId], references: [id])
+  
+  @@unique([articleId, keywordId])
+  @@index([articleId])
+  @@index([keywordId])
+}
+
+model Notification {
+  id                String         @id @default(cuid())
+  userId            String
+  articleId         String
+  type              NotificationType
+  status            NotificationStatus @default(PENDING)
+  sentAt            DateTime?
+  error             String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  
+  user              User           @relation(fields: [userId], references: [id])
+  article           Article        @relation(fields: [articleId], references: [id])
+  
+  @@unique([userId, articleId, type])
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Agency {
+  id                String         @id @default(cuid())
+  name              String         @unique
+  acronym           String?
+  country           String         @default("US")
+  type              AgencyType     @default(GOVERNMENT)
+  isActive          Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  
+  subscriptions     Subscription[]
+  matchedAgencies   MatchedAgency[]
+}
+
+model Location {
+  id                String         @id @default(cuid())
+  name              String         @unique
+  country           String
+  region            String?        // State/Province
+  city              String?
+  coordinates       String?        // lat,lng
+  isActive          Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  
+  subscriptions     Subscription[]
+  matchedLocations  MatchedLocation[]
+}
+
+model MatchedCompany {
+  id                String         @id @default(cuid())
+  articleId         String
+  companyId         String
+  matchContext      String?
+  confidence        Float          @default(1.0)
+  createdAt         DateTime       @default(now())
+  
+  article           Article        @relation(fields: [articleId], references: [id])
+  company           Company        @relation(fields: [companyId], references: [id])
+  
+  @@unique([articleId, companyId])
+  @@index([articleId])
+  @@index([companyId])
+}
+
+model MatchedAgency {
+  id                String         @id @default(cuid())
+  articleId         String
+  agencyId          String
+  matchContext      String?
+  confidence        Float          @default(1.0)
+  createdAt         DateTime       @default(now())
+  
+  article           Article        @relation(fields: [articleId], references: [id])
+  agency            Agency         @relation(fields: [agencyId], references: [id])
+  
+  @@unique([articleId, agencyId])
+  @@index([articleId])
+  @@index([agencyId])
+}
+
+model MatchedLocation {
+  id                String         @id @default(cuid())
+  articleId         String
+  locationId        String
+  matchContext      String?
+  confidence        Float          @default(1.0)
+  createdAt         DateTime       @default(now())
+  
+  article           Article        @relation(fields: [articleId], references: [id])
+  location          Location       @relation(fields: [locationId], references: [id])
+  
+  @@unique([articleId, locationId])
+  @@index([articleId])
+  @@index([locationId])
+}
+
+model Incident {
+  id                String         @id @default(cuid())
+  articleId         String
+  title             String
+  description       String         @db.Text
+  severity          SeverityLevel
+  affectedEntities  String[]       // Companies, agencies affected
+  incidentType      IncidentType
+  timeline          Json?          // Key dates and events
+  impact            String?        @db.Text
+  status            IncidentStatus @default(ACTIVE)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  
+  article           Article        @relation(fields: [articleId], references: [id])
+  
+  @@index([severity])
+  @@index([incidentType])
+  @@index([status])
+}
+
+enum SubscriptionType {
+  COMPANY
+  KEYWORD
+  AGENCY
+  LOCATION
+}
+
+enum SeverityLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AgencyType {
+  GOVERNMENT
+  REGULATORY
+  LAW_ENFORCEMENT
+  MILITARY
+  CYBERSECURITY
+}
+
+enum IncidentType {
+  DATA_BREACH
+  RANSOMWARE
+  MALWARE
+  PHISHING
+  VULNERABILITY
+  DDOS
+  INSIDER_THREAT
+  SUPPLY_CHAIN
+  OTHER
+}
+
+enum IncidentStatus {
+  ACTIVE
+  CONTAINED
+  RESOLVED
+  INVESTIGATING
+}
+
+enum NotificationType {
+  EMAIL
+  SMS
+  PUSH
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
