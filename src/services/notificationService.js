@@ -1,6 +1,5 @@
 const { PrismaClient } = require('@prisma/client');
 const sgMail = require('@sendgrid/mail');
-const twilio = require('twilio');
 const apn = require('apn');
 const logger = require('../utils/logger');
 const { notificationQueue } = require('./queueService');
@@ -20,8 +19,13 @@ if (process.env.SENDGRID_API_KEY && process.env.SENDGRID_API_KEY.startsWith('SG.
 }
 
 if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
-  twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-  logger.info('Twilio initialized successfully');
+  try {
+    const twilio = require('twilio');
+    twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+    logger.info('Twilio initialized successfully');
+  } catch (error) {
+    logger.warn('Twilio initialization failed:', error.message);
+  }
 } else {
   logger.warn('Twilio not initialized: TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN missing');
 }
