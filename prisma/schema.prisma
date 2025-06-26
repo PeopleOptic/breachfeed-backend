@@ -110,10 +110,10 @@ model Subscription {
   updatedAt         DateTime       @updatedAt
   
   user              User           @relation(fields: [userId], references: [id])
-  company           Company?       @relation(fields: [targetId], references: [id])
-  keyword           Keyword?       @relation(fields: [targetId], references: [id])
-  agency            Agency?        @relation(fields: [targetId], references: [id])
-  location          Location?      @relation(fields: [targetId], references: [id])
+  company           Company?       @relation(fields: [targetId], references: [id], map: "Subscription_company_fkey")
+  keyword           Keyword?       @relation(fields: [targetId], references: [id], map: "Subscription_keyword_fkey")
+  agency            Agency?        @relation(fields: [targetId], references: [id], map: "Subscription_agency_fkey")
+  location          Location?      @relation(fields: [targetId], references: [id], map: "Subscription_location_fkey")
   
   @@unique([userId, type, targetId])
   @@index([userId])
