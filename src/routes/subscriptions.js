@@ -273,6 +273,35 @@ router.post('/keywords', authenticateApiKey, async (req, res, next) => {
   }
 });
 
+router.patch('/keywords/:id', authenticateApiKey, async (req, res, next) => {
+  try {
+    const { term, category } = req.body;
+    
+    const keyword = await prisma.keyword.findUnique({
+      where: { id: req.params.id }
+    });
+    
+    if (!keyword) {
+      return res.status(404).json({ error: 'Keyword not found' });
+    }
+    
+    const updatedKeyword = await prisma.keyword.update({
+      where: { id: req.params.id },
+      data: {
+        ...(term !== undefined && { term }),
+        ...(category !== undefined && { category })
+      }
+    });
+    
+    res.json(updatedKeyword);
+  } catch (error) {
+    if (error.code === 'P2002') {
+      return res.status(400).json({ error: 'Keyword term already exists' });
+    }
+    next(error);
+  }
+});
+
 router.delete('/keywords/:id', authenticateApiKey, async (req, res, next) => {
   try {
     const keyword = await prisma.keyword.findUnique({
