@@ -188,6 +188,36 @@ router.post('/companies', authenticateApiKey, async (req, res, next) => {
   }
 });
 
+router.patch('/companies/:id', authenticateApiKey, async (req, res, next) => {
+  try {
+    const { name, aliases, domain } = req.body;
+    
+    const company = await prisma.company.findUnique({
+      where: { id: req.params.id }
+    });
+    
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+    
+    const updatedCompany = await prisma.company.update({
+      where: { id: req.params.id },
+      data: {
+        ...(name !== undefined && { name }),
+        ...(aliases !== undefined && { aliases }),
+        ...(domain !== undefined && { domain })
+      }
+    });
+    
+    res.json(updatedCompany);
+  } catch (error) {
+    if (error.code === 'P2002') {
+      return res.status(400).json({ error: 'Company name already exists' });
+    }
+    next(error);
+  }
+});
+
 router.delete('/companies/:id', authenticateApiKey, async (req, res, next) => {
   try {
     const company = await prisma.company.findUnique({
