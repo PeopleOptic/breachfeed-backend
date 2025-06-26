@@ -188,6 +188,26 @@ router.post('/companies', authenticateApiKey, async (req, res, next) => {
   }
 });
 
+router.delete('/companies/:id', authenticateApiKey, async (req, res, next) => {
+  try {
+    const company = await prisma.company.findUnique({
+      where: { id: req.params.id }
+    });
+    
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+    
+    await prisma.company.delete({
+      where: { id: req.params.id }
+    });
+    
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Manage keywords
 router.get('/keywords', authenticateApiKey, async (req, res, next) => {
   try {
@@ -219,6 +239,26 @@ router.post('/keywords', authenticateApiKey, async (req, res, next) => {
     if (error.code === 'P2002') {
       return res.status(400).json({ error: 'Keyword already exists' });
     }
+    next(error);
+  }
+});
+
+router.delete('/keywords/:id', authenticateApiKey, async (req, res, next) => {
+  try {
+    const keyword = await prisma.keyword.findUnique({
+      where: { id: req.params.id }
+    });
+    
+    if (!keyword) {
+      return res.status(404).json({ error: 'Keyword not found' });
+    }
+    
+    await prisma.keyword.delete({
+      where: { id: req.params.id }
+    });
+    
+    res.status(204).send();
+  } catch (error) {
     next(error);
   }
 });
