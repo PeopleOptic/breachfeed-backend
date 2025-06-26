@@ -20,6 +20,9 @@ const webhookRoutes = require('./routes/webhooks');
 const app = express();
 const prisma = new PrismaClient();
 
+// Trust proxy for accurate client IP detection (required for Railway)
+app.set('trust proxy', 1);
+
 // Middleware
 app.use(helmet());
 app.use(cors({
