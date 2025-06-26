@@ -78,8 +78,7 @@ jspm_packages/
 *.swo
 
 # Prisma
-prisma/migrations/
-!prisma/migrations/.keep
+# Note: migrations are tracked in git for production deployment
 
 # SSL certificates
 *.pem
