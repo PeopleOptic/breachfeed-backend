@@ -3,6 +3,7 @@ const { PrismaClient } = require('@prisma/client');
 const logger = require('../utils/logger');
 const { matchArticleKeywords } = require('./matchingService');
 const { queueNotifications } = require('./notificationService');
+const AIService = require('./aiService');
 
 const parser = new Parser({
   timeout: 10000,
@@ -35,13 +36,13 @@ async function fetchAndProcessFeed(feed) {
         
         if (existingArticle) continue;
         
-        // Prepare categories array
-        let categories = [];
+        // Prepare categories array from RSS feed
+        let originalCategories = [];
         if (item.categories) {
           if (Array.isArray(item.categories)) {
-            categories = item.categories;
+            originalCategories = item.categories;
           } else if (typeof item.categories === 'string') {
-            categories = [item.categories];
+            originalCategories = [item.categories];
           }
         }
         
@@ -87,8 +88,28 @@ async function fetchAndProcessFeed(feed) {
           }
         }
         
+        // Create temporary article object for AI tag generation
+        const tempArticle = {
+          title: item.title || 'Untitled',
+          description: item.contentSnippet || item.summary || '',
+          content: item.content || item['content:encoded'] || ''
+        };
+        
+        // Generate AI tags
+        let aiTags = [];
+        try {
+          aiTags = AIService.generateTags(tempArticle);
+          logger.info(`Generated ${aiTags.length} AI tags for article: ${tempArticle.title}`);
+        } catch (tagError) {
+          logger.warn(`Failed to generate AI tags for article ${tempArticle.title}:`, tagError);
+          aiTags = ['cybersecurity']; // fallback
+        }
+        
+        // Combine original RSS categories with AI-generated tags
+        const categories = [...new Set([...originalCategories, ...aiTags])];
+        
         // Log article data for debugging
-        logger.info(`Creating article: ${item.title} from ${feed.name}${imageUrl ? ` with image: ${imageUrl}` : ''}`);
+        logger.info(`Creating article: ${item.title} from ${feed.name}${imageUrl ? ` with image: ${imageUrl}` : ''} with ${categories.length} tags`);
         
         // Create new article
         const article = await prisma.article.create({

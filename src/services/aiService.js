@@ -272,6 +272,145 @@ class AIService {
   }
   
   /**
+   * Generate smart tags from article content
+   */
+  static generateTags(article) {
+    try {
+      const content = `${article.title} ${article.description} ${article.content || ''}`.toLowerCase();
+      const tags = new Set();
+      
+      // Technology/Platform tags
+      const techPatterns = {
+        'windows': ['windows', 'microsoft windows', 'win10', 'win11'],
+        'linux': ['linux', 'ubuntu', 'debian', 'centos', 'redhat'],
+        'macos': ['macos', 'mac os', 'osx', 'apple'],
+        'android': ['android', 'google android'],
+        'ios': ['ios', 'iphone', 'ipad', 'apple ios'],
+        'cloud': ['cloud', 'aws', 'azure', 'gcp', 'google cloud'],
+        'docker': ['docker', 'container', 'kubernetes'],
+        'wordpress': ['wordpress', 'wp'],
+        'apache': ['apache', 'httpd'],
+        'nginx': ['nginx'],
+        'mysql': ['mysql', 'mariadb'],
+        'postgresql': ['postgresql', 'postgres'],
+        'mongodb': ['mongodb', 'mongo'],
+        'redis': ['redis'],
+        'elasticsearch': ['elasticsearch', 'elastic'],
+        'jenkins': ['jenkins'],
+        'git': ['git', 'github', 'gitlab'],
+        'ssh': ['ssh', 'secure shell'],
+        'ftp': ['ftp', 'sftp'],
+        'vpn': ['vpn', 'virtual private network'],
+        'firewall': ['firewall', 'iptables'],
+        'java': ['java', 'jvm'],
+        'python': ['python'],
+        'javascript': ['javascript', 'js', 'node.js', 'nodejs'],
+        'php': ['php'],
+        'dotnet': ['.net', 'dotnet', 'c#']
+      };
+      
+      // Attack/Threat type tags
+      const attackPatterns = {
+        'ransomware': ['ransomware', 'encryption', 'ransom'],
+        'phishing': ['phishing', 'spear-phishing', 'credential-harvesting'],
+        'malware': ['malware', 'trojan', 'virus', 'worm', 'backdoor'],
+        'apt': ['apt', 'advanced persistent threat', 'nation-state'],
+        'ddos': ['ddos', 'denial of service', 'botnet'],
+        'sql-injection': ['sql injection', 'sqli'],
+        'xss': ['xss', 'cross-site scripting'],
+        'csrf': ['csrf', 'cross-site request forgery'],
+        'rce': ['remote code execution', 'rce'],
+        'privilege-escalation': ['privilege escalation', 'privesc'],
+        'zero-day': ['zero-day', 'zero day', '0-day'],
+        'supply-chain': ['supply chain', 'third-party'],
+        'insider-threat': ['insider threat', 'rogue employee'],
+        'social-engineering': ['social engineering', 'pretexting'],
+        'cryptojacking': ['cryptojacking', 'cryptocurrency mining'],
+        'business-email-compromise': ['bec', 'business email compromise']
+      };
+      
+      // Industry/Sector tags
+      const industryPatterns = {
+        'healthcare': ['healthcare', 'hospital', 'medical', 'health'],
+        'finance': ['bank', 'financial', 'fintech', 'payment'],
+        'government': ['government', 'federal', 'state', 'municipal'],
+        'education': ['university', 'college', 'school', 'education'],
+        'retail': ['retail', 'e-commerce', 'shopping'],
+        'manufacturing': ['manufacturing', 'industrial', 'factory'],
+        'energy': ['energy', 'power', 'utility', 'grid'],
+        'telecommunications': ['telecom', 'telecommunications', 'network'],
+        'transportation': ['transportation', 'airline', 'shipping'],
+        'media': ['media', 'news', 'broadcasting'],
+        'technology': ['tech company', 'software company', 'it services']
+      };
+      
+      // Compliance/Framework tags
+      const compliancePatterns = {
+        'gdpr': ['gdpr', 'general data protection regulation'],
+        'hipaa': ['hipaa', 'health insurance portability'],
+        'pci-dss': ['pci-dss', 'payment card industry'],
+        'sox': ['sarbanes-oxley', 'sox'],
+        'iso27001': ['iso 27001', 'iso27001'],
+        'nist': ['nist', 'cybersecurity framework'],
+        'cis': ['cis controls', 'center for internet security']
+      };
+      
+      // Geographic tags
+      const geoPatterns = {
+        'usa': ['united states', 'usa', 'us', 'america'],
+        'europe': ['europe', 'eu', 'european union'],
+        'uk': ['united kingdom', 'uk', 'britain'],
+        'china': ['china', 'chinese'],
+        'russia': ['russia', 'russian'],
+        'north-korea': ['north korea', 'dprk'],
+        'iran': ['iran', 'iranian'],
+        'global': ['global', 'worldwide', 'international']
+      };
+      
+      // CVE pattern
+      const cvePattern = /cve-\d{4}-\d{4,}/gi;
+      const cveMatches = content.match(cvePattern);
+      if (cveMatches) {
+        cveMatches.forEach(cve => tags.add(cve.toUpperCase()));
+      }
+      
+      // Apply all pattern categories
+      const allPatterns = {
+        ...techPatterns,
+        ...attackPatterns,
+        ...industryPatterns,
+        ...compliancePatterns,
+        ...geoPatterns
+      };
+      
+      // Match patterns against content
+      for (const [tag, keywords] of Object.entries(allPatterns)) {
+        if (keywords.some(keyword => content.includes(keyword))) {
+          tags.add(tag);
+        }
+      }
+      
+      // Extract severity as tag
+      const severity = this.assessSeverity(content);
+      tags.add(`severity-${severity.toLowerCase()}`);
+      
+      // Extract incident type as tag
+      const incidentType = this.detectIncidentType(content);
+      tags.add(`incident-${incidentType.toLowerCase().replace('_', '-')}`);
+      
+      // Add year tag
+      tags.add(`year-${new Date().getFullYear()}`);
+      
+      // Convert Set to Array and limit to reasonable number
+      return Array.from(tags).slice(0, 15);
+      
+    } catch (error) {
+      logger.error('Error generating tags:', error);
+      return ['cybersecurity', 'security-incident'];
+    }
+  }
+  
+  /**
    * Extract image URL from article content
    */
   static extractImageUrl(article) {
