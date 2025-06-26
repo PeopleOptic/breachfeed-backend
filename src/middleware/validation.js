@@ -1,6 +1,6 @@
 function validateRequest(schema) {
   return (req, res, next) => {
-    const { error } = schema.validate(req.body);
+    const { error, value } = schema.validate(req.body);
     
     if (error) {
       return res.status(400).json({ 
@@ -8,6 +8,9 @@ function validateRequest(schema) {
         details: error.details.map(d => d.message) 
       });
     }
+    
+    // Apply validated and defaulted values back to req.body
+    req.body = value;
     
     next();
   };
