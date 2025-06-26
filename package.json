@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "start:prod": "prisma migrate deploy && node src/index.js",
+    "start:fix": "node startup-fix.js",
     "dev": "nodemon src/index.js",
     "test": "jest",
     "build": "prisma generate",
