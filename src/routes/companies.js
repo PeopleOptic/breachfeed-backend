@@ -178,8 +178,120 @@ router.get('/by-name/:name', authenticateApiKey, async (req, res, next) => {
       return res.status(404).json({ error: 'Company not found' });
     }
     
-    // Redirect to profile endpoint
-    return res.redirect(`/api/companies/${company.id}/profile`);
+    // Instead of redirect, fetch and return the profile data directly
+    // Get company details with full profile data
+    const fullCompany = await prisma.company.findUnique({
+      where: { id: company.id },
+      include: {
+        matchedCompanies: {
+          include: {
+            article: {
+              include: {
+                feed: {
+                  select: { name: true }
+                }
+              }
+            }
+          },
+          orderBy: {
+            article: {
+              publishedAt: 'desc'
+            }
+          }
+        }
+      }
+    });
+    
+    // Get articles that mention this company (including aliases)
+    const searchTerms = [fullCompany.name, ...fullCompany.aliases];
+    const mentionedArticles = await prisma.article.findMany({
+      where: {
+        OR: searchTerms.map(term => ({
+          OR: [
+            { title: { contains: term, mode: 'insensitive' } },
+            { description: { contains: term, mode: 'insensitive' } },
+            { content: { contains: term, mode: 'insensitive' } }
+          ]
+        }))
+      },
+      include: {
+        feed: {
+          select: { name: true }
+        }
+      },
+      orderBy: { publishedAt: 'desc' },
+      take: 50 // Limit to recent mentions
+    });
+    
+    // Identify incident articles
+    const incidents = fullCompany.matchedCompanies
+      .map(match => ({
+        date: match.article.publishedAt,
+        title: match.article.title,
+        link: match.article.link,
+        description: match.article.description,
+        severity: match.article.severity,
+        source: match.article.feed.name,
+        matchContext: match.matchContext,
+        categories: match.article.categories
+      }))
+      .filter(incident => {
+        const incidentKeywords = ['breach', 'hack', 'attack', 'compromise', 'leak', 'ransomware', 'malware', 'vulnerability'];
+        const hasIncidentKeyword = incidentKeywords.some(keyword => 
+          incident.title.toLowerCase().includes(keyword) ||
+          (incident.description && incident.description.toLowerCase().includes(keyword)) ||
+          incident.categories.some(cat => cat.toLowerCase().includes(keyword))
+        );
+        return hasIncidentKeyword || ['HIGH', 'CRITICAL'].includes(incident.severity);
+      });
+    
+    // Get recent mentions (non-incident articles)
+    const recentMentions = mentionedArticles
+      .filter(article => {
+        return !incidents.some(incident => incident.link === article.link);
+      })
+      .slice(0, 20)
+      .map(article => ({
+        date: article.publishedAt,
+        title: article.title,
+        link: article.link,
+        description: article.description,
+        source: article.feed.name,
+        categories: article.categories
+      }));
+    
+    // Calculate incident statistics
+    const incidentStats = {
+      total: incidents.length,
+      bySeverity: {
+        critical: incidents.filter(i => i.severity === 'CRITICAL').length,
+        high: incidents.filter(i => i.severity === 'HIGH').length,
+        medium: incidents.filter(i => i.severity === 'MEDIUM').length,
+        low: incidents.filter(i => i.severity === 'LOW').length
+      },
+      lastIncident: incidents.length > 0 ? incidents[0].date : null,
+      yearlyBreakdown: getYearlyBreakdown(incidents)
+    };
+    
+    res.json({
+      company: {
+        id: fullCompany.id,
+        name: fullCompany.name,
+        aliases: fullCompany.aliases,
+        description: fullCompany.description,
+        industry: fullCompany.industry,
+        website: fullCompany.website,
+        headquarters: fullCompany.headquarters,
+        foundedYear: fullCompany.foundedYear,
+        employees: fullCompany.employees,
+        logo: fullCompany.logo,
+        domain: fullCompany.domain
+      },
+      incidents,
+      incidentStats,
+      recentMentions,
+      totalMentions: mentionedArticles.length
+    });
     
   } catch (error) {
     next(error);
