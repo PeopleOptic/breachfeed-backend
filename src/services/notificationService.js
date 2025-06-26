@@ -7,9 +7,24 @@ const { notificationQueue } = require('./queueService');
 
 const prisma = new PrismaClient();
 
-// Initialize services
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+// Initialize services conditionally
+let sgMailInitialized = false;
+let twilioClient = null;
+
+if (process.env.SENDGRID_API_KEY && process.env.SENDGRID_API_KEY.startsWith('SG.')) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+  sgMailInitialized = true;
+  logger.info('SendGrid initialized successfully');
+} else {
+  logger.warn('SendGrid not initialized: SENDGRID_API_KEY missing or invalid');
+}
+
+if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+  twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+  logger.info('Twilio initialized successfully');
+} else {
+  logger.warn('Twilio not initialized: TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN missing');
+}
 
 // Initialize APNS
 let apnProvider;
@@ -181,6 +196,11 @@ async function sendEmailNotification(job) {
       `
     };
     
+    if (!sgMailInitialized) {
+      logger.warn('SendGrid not initialized, skipping email notification');
+      return;
+    }
+    
     await sgMail.send(msg);
     
     // Record notification
@@ -245,6 +265,11 @@ async function sendSmsNotification(job) {
 ${matchType}: ${article.title}
 ${shortExcerpt}
 Read: ${article.link}`;
+    
+    if (!twilioClient) {
+      logger.warn('Twilio not initialized, skipping SMS notification');
+      return;
+    }
     
     await twilioClient.messages.create({
       body: message.substring(0, 1600), // SMS limit
