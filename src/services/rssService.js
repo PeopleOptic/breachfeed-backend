@@ -78,13 +78,19 @@ async function fetchAndProcessFeed(feed) {
         });
         
         newArticles++;
+        logger.info(`Successfully created article: ${article.title} (ID: ${article.id})`);
         
-        // Match keywords and companies
-        const matches = await matchArticleKeywords(article);
-        
-        // Queue notifications if matches found
-        if (matches.length > 0) {
-          await queueNotifications(article, matches);
+        // Match keywords and companies (skip if no entities exist)
+        try {
+          const matches = await matchArticleKeywords(article);
+          logger.info(`Found ${matches.length} matches for article: ${article.title}`);
+          
+          // Queue notifications if matches found
+          if (matches.length > 0) {
+            await queueNotifications(article, matches);
+          }
+        } catch (matchError) {
+          logger.warn(`Matching failed for article ${article.title}, continuing anyway:`, matchError);
         }
         
       } catch (error) {
@@ -98,8 +104,10 @@ async function fetchAndProcessFeed(feed) {
       data: { lastFetchedAt: new Date() }
     });
     
-    if (newArticles > 0) {
-      logger.info(`Processed ${newArticles} new articles from ${feed.name}`);
+    logger.info(`Feed processing completed for ${feed.name}: ${newArticles} new articles created from ${parsedFeed.items.length} total items`);
+    
+    if (newArticles === 0 && parsedFeed.items.length > 0) {
+      logger.warn(`No new articles created despite ${parsedFeed.items.length} items in feed. All articles might already exist.`);
     }
     
   } catch (error) {
