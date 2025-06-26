@@ -22,12 +22,45 @@ async function fetchAndProcessFeed(feed) {
     
     for (const item of parsedFeed.items) {
       try {
+        // Validate required fields
+        if (!item.link) {
+          logger.warn(`Skipping article without link from feed ${feed.name}`);
+          continue;
+        }
+        
         // Check if article already exists
         const existingArticle = await prisma.article.findUnique({
           where: { link: item.link }
         });
         
         if (existingArticle) continue;
+        
+        // Prepare categories array
+        let categories = [];
+        if (item.categories) {
+          if (Array.isArray(item.categories)) {
+            categories = item.categories;
+          } else if (typeof item.categories === 'string') {
+            categories = [item.categories];
+          }
+        }
+        
+        // Parse publish date safely
+        let publishedAt = new Date();
+        if (item.pubDate) {
+          try {
+            publishedAt = new Date(item.pubDate);
+            if (isNaN(publishedAt.getTime())) {
+              publishedAt = new Date();
+            }
+          } catch (dateError) {
+            logger.warn(`Invalid date format for article ${item.title}: ${item.pubDate}`);
+            publishedAt = new Date();
+          }
+        }
+        
+        // Log article data for debugging
+        logger.info(`Creating article: ${item.title} from ${feed.name}`);
         
         // Create new article
         const article = await prisma.article.create({
@@ -38,9 +71,9 @@ async function fetchAndProcessFeed(feed) {
             description: item.contentSnippet || item.summary || '',
             content: item.content || item['content:encoded'] || '',
             author: item.creator || item.author || null,
-            publishedAt: item.pubDate ? new Date(item.pubDate) : new Date(),
+            publishedAt,
             guid: item.guid || item.link,
-            categories: item.categories || []
+            categories
           }
         });
         
