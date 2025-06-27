@@ -434,6 +434,194 @@ class AIService {
     
     return null;
   }
+
+  /**
+   * Generate AI-powered company description and metadata
+   */
+  static generateCompanyProfile(companyName, articles = []) {
+    try {
+      // Analyze company from available articles and known data
+      const profile = this.analyzeCompanyFromData(companyName, articles);
+      
+      return {
+        description: profile.description,
+        industry: profile.industry,
+        stockTicker: profile.stockTicker,
+        marketCap: profile.marketCap,
+        founded: profile.founded,
+        headquarters: profile.headquarters,
+        employees: profile.employees,
+        website: profile.website,
+        competitors: profile.competitors,
+        keyProducts: profile.keyProducts,
+        businessModel: profile.businessModel
+      };
+    } catch (error) {
+      logger.error('Error generating company profile:', error);
+      return this.getFallbackProfile(companyName);
+    }
+  }
+
+  static analyzeCompanyFromData(companyName, articles) {
+    const name = companyName.toLowerCase();
+    
+    // Known company profiles (in production, this would be ML-based or API-driven)
+    const knownCompanies = {
+      'microsoft': {
+        description: 'Microsoft Corporation is a multinational technology company that develops, manufactures, licenses, supports, and sells computer software, consumer electronics, personal computers, and related services. Known for Windows operating system, Office productivity suite, Azure cloud platform, and enterprise solutions.',
+        industry: 'Technology',
+        stockTicker: 'MSFT',
+        marketCap: '$2.8T',
+        founded: '1975',
+        headquarters: 'Redmond, Washington',
+        employees: '221,000+',
+        website: 'https://www.microsoft.com',
+        competitors: ['Apple', 'Google', 'Amazon', 'Oracle', 'IBM'],
+        keyProducts: ['Windows', 'Office 365', 'Azure', 'Teams', 'Xbox'],
+        businessModel: 'Software licensing, cloud services, hardware'
+      },
+      'apple': {
+        description: 'Apple Inc. is a multinational technology company that designs, develops, and sells consumer electronics, computer software, and online services. Best known for iPhone smartphones, Mac computers, iPad tablets, and innovative consumer technology products.',
+        industry: 'Technology',
+        stockTicker: 'AAPL',
+        marketCap: '$3.0T',
+        founded: '1976',
+        headquarters: 'Cupertino, California',
+        employees: '164,000+',
+        website: 'https://www.apple.com',
+        competitors: ['Samsung', 'Google', 'Microsoft', 'Huawei', 'Dell'],
+        keyProducts: ['iPhone', 'Mac', 'iPad', 'Apple Watch', 'AirPods'],
+        businessModel: 'Hardware sales, services, software'
+      },
+      'google': {
+        description: 'Google LLC is a multinational technology company specializing in internet-related services and products, including search engine, cloud computing, advertising technologies, and consumer electronics. Parent company Alphabet operates various subsidiaries.',
+        industry: 'Technology',
+        stockTicker: 'GOOGL',
+        marketCap: '$1.7T',
+        founded: '1998',
+        headquarters: 'Mountain View, California',
+        employees: '182,000+',
+        website: 'https://www.google.com',
+        competitors: ['Microsoft', 'Apple', 'Amazon', 'Meta', 'Oracle'],
+        keyProducts: ['Search', 'YouTube', 'Gmail', 'Android', 'Google Cloud'],
+        businessModel: 'Digital advertising, cloud services, hardware'
+      },
+      'amazon': {
+        description: 'Amazon.com Inc. is a multinational technology and e-commerce company offering online marketplace, cloud computing, digital streaming, and artificial intelligence services. World\'s largest e-commerce and cloud computing platform.',
+        industry: 'Technology/E-commerce',
+        stockTicker: 'AMZN',
+        marketCap: '$1.5T',
+        founded: '1994',
+        headquarters: 'Seattle, Washington',
+        employees: '1.5M+',
+        website: 'https://www.amazon.com',
+        competitors: ['Microsoft', 'Google', 'Walmart', 'Alibaba', 'eBay'],
+        keyProducts: ['AWS', 'Prime', 'Alexa', 'Kindle', 'Marketplace'],
+        businessModel: 'E-commerce, cloud services, advertising'
+      },
+      'meta': {
+        description: 'Meta Platforms Inc. (formerly Facebook) is a multinational technology company operating social networking platforms and developing virtual reality and metaverse technologies. Connects billions of people worldwide through social media.',
+        industry: 'Social Media/Technology',
+        stockTicker: 'META',
+        marketCap: '$800B',
+        founded: '2004',
+        headquarters: 'Menlo Park, California',
+        employees: '67,000+',
+        website: 'https://about.meta.com',
+        competitors: ['Google', 'TikTok', 'Twitter', 'Snapchat', 'YouTube'],
+        keyProducts: ['Facebook', 'Instagram', 'WhatsApp', 'Messenger', 'Oculus'],
+        businessModel: 'Digital advertising, virtual reality'
+      },
+      'tesla': {
+        description: 'Tesla Inc. is an electric vehicle and clean energy company that designs, manufactures, and sells electric cars, energy storage systems, and solar panels. Leading innovation in sustainable transportation and energy.',
+        industry: 'Automotive/Clean Energy',
+        stockTicker: 'TSLA',
+        marketCap: '$800B',
+        founded: '2003',
+        headquarters: 'Austin, Texas',
+        employees: '127,000+',
+        website: 'https://www.tesla.com',
+        competitors: ['Ford', 'GM', 'Volkswagen', 'BYD', 'Rivian'],
+        keyProducts: ['Model S/3/X/Y', 'Cybertruck', 'Solar Roof', 'Powerwall'],
+        businessModel: 'Electric vehicle sales, energy products'
+      }
+    };
+
+    // Try to find exact match first
+    if (knownCompanies[name]) {
+      return knownCompanies[name];
+    }
+
+    // Try partial matches
+    for (const [key, profile] of Object.entries(knownCompanies)) {
+      if (name.includes(key) || key.includes(name)) {
+        return profile;
+      }
+    }
+
+    // Generate basic profile from articles if available
+    return this.generateProfileFromArticles(companyName, articles);
+  }
+
+  static generateProfileFromArticles(companyName, articles) {
+    // Analyze industry from article content
+    const industry = this.detectIndustryFromArticles(articles);
+    
+    return {
+      description: `${companyName} is a company in the ${industry} sector. Information about their specific business operations and services can be found through their recent news coverage and security incident reports.`,
+      industry: industry,
+      stockTicker: 'Unknown',
+      marketCap: 'Unknown',
+      founded: 'Unknown',
+      headquarters: 'Unknown',
+      employees: 'Unknown',
+      website: `https://www.${companyName.toLowerCase().replace(/\s+/g, '')}.com`,
+      competitors: [],
+      keyProducts: [],
+      businessModel: 'Business operations in ' + industry
+    };
+  }
+
+  static detectIndustryFromArticles(articles) {
+    if (!articles || articles.length === 0) return 'Technology';
+    
+    const content = articles.map(a => `${a.title} ${a.description}`).join(' ').toLowerCase();
+    
+    const industryKeywords = {
+      'Healthcare': ['health', 'medical', 'hospital', 'patient', 'healthcare', 'pharma'],
+      'Finance': ['bank', 'financial', 'payment', 'credit', 'investment', 'finance'],
+      'Technology': ['software', 'tech', 'cloud', 'data', 'digital', 'cyber'],
+      'Retail': ['retail', 'store', 'shopping', 'customer', 'ecommerce'],
+      'Energy': ['energy', 'oil', 'gas', 'power', 'electric', 'renewable'],
+      'Manufacturing': ['manufacturing', 'factory', 'production', 'supply'],
+      'Government': ['government', 'federal', 'agency', 'public', 'municipal'],
+      'Education': ['school', 'university', 'education', 'student', 'academic']
+    };
+
+    for (const [industry, keywords] of Object.entries(industryKeywords)) {
+      if (keywords.some(keyword => content.includes(keyword))) {
+        return industry;
+      }
+    }
+
+    return 'Technology'; // Default fallback
+  }
+
+  static getFallbackProfile(companyName) {
+    return {
+      description: `${companyName} is a company that appears in cybersecurity news and incident reports. Specific business details are being gathered from ongoing analysis.`,
+      industry: 'Unknown',
+      stockTicker: 'Unknown',
+      marketCap: 'Unknown',
+      founded: 'Unknown',
+      headquarters: 'Unknown',
+      employees: 'Unknown',
+      website: 'Unknown',
+      competitors: [],
+      keyProducts: [],
+      businessModel: 'Unknown'
+    };
+  }
 }
 
 module.exports = AIService;

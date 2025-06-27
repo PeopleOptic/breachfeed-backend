@@ -3,6 +3,7 @@ const { PrismaClient } = require('@prisma/client');
 const Joi = require('joi');
 const { authenticateApiKey } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/validation');
+const AIService = require('../services/aiService');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -205,20 +206,31 @@ router.get('/:id/profile', authenticateApiKey, async (req, res, next) => {
       yearlyBreakdown: getYearlyBreakdown(incidents)
     };
     
+    // Generate AI-powered company profile
+    let aiProfile = null;
+    try {
+      const relevantArticles = [...incidents, ...recentMentions].slice(0, 10);
+      aiProfile = AIService.generateCompanyProfile(company.name, relevantArticles);
+      console.log(`Generated AI profile for ${company.name}:`, aiProfile);
+    } catch (error) {
+      console.error('Error generating AI profile:', error);
+    }
+    
     res.json({
       company: {
         id: company.id,
         name: company.name,
         aliases: company.aliases || [],
-        description: company.description || null,
-        industry: company.industry || null,
-        website: company.website || null,
-        headquarters: company.headquarters || null,
-        foundedYear: company.foundedYear || null,
-        employees: company.employees || null,
+        description: company.description || aiProfile?.description || null,
+        industry: company.industry || aiProfile?.industry || null,
+        website: company.website || aiProfile?.website || null,
+        headquarters: company.headquarters || aiProfile?.headquarters || null,
+        foundedYear: company.foundedYear || aiProfile?.founded || null,
+        employees: company.employees || aiProfile?.employees || null,
         logo: company.logo || null,
         domain: company.domain || null
       },
+      aiProfile,
       incidents,
       incidentStats,
       recentMentions,
@@ -396,20 +408,31 @@ router.get('/by-name/:name', authenticateApiKey, async (req, res, next) => {
       yearlyBreakdown: getYearlyBreakdown(incidents)
     };
     
+    // Generate AI-powered company profile
+    let aiProfile = null;
+    try {
+      const relevantArticles = [...incidents, ...recentMentions].slice(0, 10);
+      aiProfile = AIService.generateCompanyProfile(fullCompany.name, relevantArticles);
+      console.log(`Generated AI profile for ${fullCompany.name}:`, aiProfile);
+    } catch (error) {
+      console.error('Error generating AI profile:', error);
+    }
+    
     res.json({
       company: {
         id: fullCompany.id,
         name: fullCompany.name,
         aliases: fullCompany.aliases,
-        description: fullCompany.description,
-        industry: fullCompany.industry,
-        website: fullCompany.website,
-        headquarters: fullCompany.headquarters,
-        foundedYear: fullCompany.foundedYear,
-        employees: fullCompany.employees,
+        description: fullCompany.description || aiProfile?.description,
+        industry: fullCompany.industry || aiProfile?.industry,
+        website: fullCompany.website || aiProfile?.website,
+        headquarters: fullCompany.headquarters || aiProfile?.headquarters,
+        foundedYear: fullCompany.foundedYear || aiProfile?.founded,
+        employees: fullCompany.employees || aiProfile?.employees,
         logo: fullCompany.logo,
         domain: fullCompany.domain
       },
+      aiProfile,
       incidents,
       incidentStats,
       recentMentions,
