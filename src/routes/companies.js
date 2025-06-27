@@ -33,6 +33,7 @@ router.get('/', authenticateApiKey, async (req, res, next) => {
 router.get('/:id/profile', authenticateApiKey, async (req, res, next) => {
   try {
     const companyId = req.params.id;
+    console.log(`Fetching company profile for ID: ${companyId}`);
     
     // Get company details
     const company = await prisma.company.findUnique({
@@ -58,11 +59,16 @@ router.get('/:id/profile', authenticateApiKey, async (req, res, next) => {
     });
     
     if (!company) {
+      console.log(`Company not found for ID: ${companyId}`);
       return res.status(404).json({ error: 'Company not found' });
     }
     
+    console.log(`Found company: ${company.name}`);
+    
     // Get articles that mention this company (including aliases)
-    const searchTerms = [company.name, ...company.aliases];
+    // Handle cases where aliases might be null or undefined
+    const aliases = company.aliases || [];
+    const searchTerms = [company.name, ...aliases];
     const mentionedArticles = await prisma.article.findMany({
       where: {
         OR: searchTerms.map(term => ({
@@ -138,15 +144,15 @@ router.get('/:id/profile', authenticateApiKey, async (req, res, next) => {
       company: {
         id: company.id,
         name: company.name,
-        aliases: company.aliases,
-        description: company.description,
-        industry: company.industry,
-        website: company.website,
-        headquarters: company.headquarters,
-        foundedYear: company.foundedYear,
-        employees: company.employees,
-        logo: company.logo,
-        domain: company.domain
+        aliases: company.aliases || [],
+        description: company.description || null,
+        industry: company.industry || null,
+        website: company.website || null,
+        headquarters: company.headquarters || null,
+        foundedYear: company.foundedYear || null,
+        employees: company.employees || null,
+        logo: company.logo || null,
+        domain: company.domain || null
       },
       incidents,
       incidentStats,
@@ -155,7 +161,11 @@ router.get('/:id/profile', authenticateApiKey, async (req, res, next) => {
     });
     
   } catch (error) {
-    next(error);
+    console.error(`Error in company profile endpoint for ID ${req.params.id}:`, error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined 
+    });
   }
 });
 
