@@ -7,6 +7,39 @@ const { validateRequest } = require('../middleware/validation');
 const router = express.Router();
 const prisma = new PrismaClient();
 
+// Debug endpoint to check company schema
+router.get('/debug/schema', authenticateApiKey, async (req, res, next) => {
+  try {
+    // Try to get a single company with all possible fields
+    const sampleCompany = await prisma.company.findFirst({
+      where: { isActive: true }
+    });
+    
+    if (!sampleCompany) {
+      return res.json({ message: 'No companies found' });
+    }
+    
+    res.json({
+      sampleCompany,
+      availableFields: Object.keys(sampleCompany),
+      hasNewFields: {
+        hasDescription: 'description' in sampleCompany,
+        hasIndustry: 'industry' in sampleCompany,
+        hasWebsite: 'website' in sampleCompany,
+        hasHeadquarters: 'headquarters' in sampleCompany,
+        hasFoundedYear: 'foundedYear' in sampleCompany,
+        hasEmployees: 'employees' in sampleCompany,
+        hasLogo: 'logo' in sampleCompany
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      error: 'Schema check failed',
+      details: error.message 
+    });
+  }
+});
+
 // Get all companies with basic info
 router.get('/', authenticateApiKey, async (req, res, next) => {
   try {
@@ -16,6 +49,9 @@ router.get('/', authenticateApiKey, async (req, res, next) => {
       select: {
         id: true,
         name: true,
+        domain: true,
+        aliases: true,
+        // Only select new fields if they exist, use fallbacks if not
         industry: true,
         website: true,
         logo: true,
@@ -25,7 +61,28 @@ router.get('/', authenticateApiKey, async (req, res, next) => {
     
     res.json(companies);
   } catch (error) {
-    next(error);
+    console.error('Error fetching companies:', error);
+    // If the error is about unknown columns, return basic company data
+    if (error.message && error.message.includes('Unknown column')) {
+      try {
+        const basicCompanies = await prisma.company.findMany({
+          where: { isActive: true },
+          orderBy: { name: 'asc' },
+          select: {
+            id: true,
+            name: true,
+            domain: true,
+            aliases: true,
+            createdAt: true
+          }
+        });
+        res.json(basicCompanies);
+      } catch (basicError) {
+        next(basicError);
+      }
+    } else {
+      next(error);
+    }
   }
 });
 
