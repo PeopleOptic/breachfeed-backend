@@ -147,16 +147,24 @@ router.get('/:id/profile', authenticateApiKey, async (req, res, next) => {
     
     // Identify incident articles (articles with breach-related keywords or high severity)
     const incidents = (company.matchedCompanies || [])
-      .map(match => ({
-        date: match.article.publishedAt,
-        title: match.article.title,
-        link: match.article.link,
-        description: match.article.description,
-        severity: match.article.severity,
-        source: match.article.feed.name,
-        matchContext: match.matchContext,
-        categories: match.article.categories
-      }))
+      .map(match => {
+        try {
+          return {
+            date: match.article.publishedAt,
+            title: match.article.title,
+            link: match.article.link,
+            description: match.article.description,
+            severity: match.article.severity,
+            source: match.article.feed?.name || 'Unknown',
+            matchContext: match.matchContext,
+            categories: match.article.categories || []
+          };
+        } catch (e) {
+          console.log('Error mapping incident:', e);
+          return null;
+        }
+      })
+      .filter(Boolean)
       .filter(incident => {
         // Filter for actual security incidents
         const incidentKeywords = ['breach', 'hack', 'attack', 'compromise', 'leak', 'ransomware', 'malware', 'vulnerability'];
