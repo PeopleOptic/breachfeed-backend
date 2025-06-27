@@ -146,7 +146,7 @@ router.get('/:id/profile', authenticateApiKey, async (req, res, next) => {
     });
     
     // Identify incident articles (articles with breach-related keywords or high severity)
-    const incidents = company.matchedCompanies
+    const incidents = (company.matchedCompanies || [])
       .map(match => ({
         date: match.article.publishedAt,
         title: match.article.title,
@@ -163,7 +163,7 @@ router.get('/:id/profile', authenticateApiKey, async (req, res, next) => {
         const hasIncidentKeyword = incidentKeywords.some(keyword => 
           incident.title.toLowerCase().includes(keyword) ||
           (incident.description && incident.description.toLowerCase().includes(keyword)) ||
-          incident.categories.some(cat => cat.toLowerCase().includes(keyword))
+          (incident.categories && Array.isArray(incident.categories) && incident.categories.some(cat => cat.toLowerCase().includes(keyword)))
         );
         return hasIncidentKeyword || ['HIGH', 'CRITICAL'].includes(incident.severity);
       });
@@ -223,6 +223,54 @@ router.get('/:id/profile', authenticateApiKey, async (req, res, next) => {
       error: 'Internal server error',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined 
     });
+  }
+});
+
+// Minimal profile endpoint for testing
+router.get('/:id/profile-minimal', authenticateApiKey, async (req, res, next) => {
+  try {
+    const companyId = req.params.id;
+    
+    const company = await prisma.company.findUnique({
+      where: { id: companyId }
+    });
+    
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+    
+    res.json({
+      company: {
+        id: company.id,
+        name: company.name,
+        aliases: company.aliases || [],
+        description: company.description || null,
+        industry: company.industry || null,
+        website: company.website || null,
+        headquarters: company.headquarters || null,
+        foundedYear: company.foundedYear || null,
+        employees: company.employees || null,
+        logo: company.logo || null,
+        domain: company.domain || null
+      },
+      incidents: [],
+      incidentStats: {
+        total: 0,
+        bySeverity: {
+          critical: 0,
+          high: 0,
+          medium: 0,
+          low: 0
+        },
+        lastIncident: null,
+        yearlyBreakdown: {}
+      },
+      recentMentions: [],
+      totalMentions: 0
+    });
+  } catch (error) {
+    console.error('Error in minimal profile:', error);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 });
 
@@ -291,7 +339,7 @@ router.get('/by-name/:name', authenticateApiKey, async (req, res, next) => {
     });
     
     // Identify incident articles
-    const incidents = fullCompany.matchedCompanies
+    const incidents = (fullCompany.matchedCompanies || [])
       .map(match => ({
         date: match.article.publishedAt,
         title: match.article.title,
