@@ -182,6 +182,168 @@ router.get('/keyword/:keywordId', authenticateApiKey, async (req, res, next) => 
 });
 
 // Get articles for a specific user based on their subscriptions
+// Updated to use API key authentication for WordPress integration
+router.get('/user-feed', authenticateApiKey, async (req, res, next) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const { user_email, severity, days } = req.query;
+    
+    let articles = [];
+    
+    if (user_email) {
+      // Get user by email
+      const user = await prisma.user.findUnique({
+        where: { email: user_email },
+        include: {
+          subscriptions: {
+            where: { isActive: true },
+            select: {
+              type: true,
+              targetId: true,
+              severityFilter: true
+            }
+          }
+        }
+      });
+      
+      if (user && user.subscriptions.length > 0) {
+        const companyIds = user.subscriptions
+          .filter(s => s.type === 'COMPANY')
+          .map(s => s.targetId);
+        const keywordIds = user.subscriptions
+          .filter(s => s.type === 'KEYWORD')
+          .map(s => s.targetId);
+        const agencyIds = user.subscriptions
+          .filter(s => s.type === 'AGENCY')
+          .map(s => s.targetId);
+        const locationIds = user.subscriptions
+          .filter(s => s.type === 'LOCATION')
+          .map(s => s.targetId);
+        
+        // Build where conditions
+        const whereConditions = [];
+        
+        if (keywordIds.length > 0) {
+          whereConditions.push({
+            matchedKeywords: {
+              some: {
+                keywordId: { in: keywordIds }
+              }
+            }
+          });
+        }
+        
+        if (companyIds.length > 0) {
+          whereConditions.push({
+            matchedCompanies: {
+              some: {
+                companyId: { in: companyIds }
+              }
+            }
+          });
+        }
+        
+        if (agencyIds.length > 0) {
+          whereConditions.push({
+            matchedAgencies: {
+              some: {
+                agencyId: { in: agencyIds }
+              }
+            }
+          });
+        }
+        
+        if (locationIds.length > 0) {
+          whereConditions.push({
+            matchedLocations: {
+              some: {
+                locationId: { in: locationIds }
+              }
+            }
+          });
+        }
+        
+        if (whereConditions.length > 0) {
+          const where = { OR: whereConditions };
+          
+          // Add time filter
+          if (days) {
+            const daysAgo = new Date(Date.now() - parseInt(days) * 24 * 60 * 60 * 1000);
+            where.publishedAt = { gte: daysAgo };
+          }
+          
+          // Add severity filter
+          if (severity) {
+            where.severity = severity;
+          }
+          
+          articles = await prisma.article.findMany({
+            where,
+            include: {
+              feed: {
+                select: { id: true, name: true }
+              },
+              matchedKeywords: {
+                include: { keyword: true }
+              },
+              matchedCompanies: {
+                include: { company: true }
+              },
+              matchedAgencies: {
+                include: { agency: true }
+              },
+              matchedLocations: {
+                include: { location: true }
+              }
+            },
+            skip: (page - 1) * limit,
+            take: limit,
+            orderBy: { publishedAt: 'desc' }
+          });
+        }
+      }
+    }
+    
+    // Fallback: return recent high-priority articles if no user-specific feed
+    if (articles.length === 0) {
+      const where = { severity: { in: ['MEDIUM', 'HIGH', 'CRITICAL'] } };
+      
+      if (days) {
+        const daysAgo = new Date(Date.now() - parseInt(days) * 24 * 60 * 60 * 1000);
+        where.publishedAt = { gte: daysAgo };
+      }
+      
+      if (severity) {
+        where.severity = severity;
+      }
+      
+      articles = await prisma.article.findMany({
+        where,
+        include: {
+          feed: {
+            select: { id: true, name: true }
+          },
+          matchedKeywords: {
+            include: { keyword: true }
+          },
+          matchedCompanies: {
+            include: { company: true }
+          }
+        },
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { publishedAt: 'desc' }
+      });
+    }
+    
+    res.json(articles);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Keep the old JWT endpoint for backward compatibility
 router.get('/user/feed', authenticateJWT, async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -207,25 +369,39 @@ router.get('/user/feed', authenticateJWT, async (req, res, next) => {
       .map(s => s.targetId);
     
     // Find articles matching user's subscriptions
+    const whereConditions = [];
+    
+    if (keywordIds.length > 0) {
+      whereConditions.push({
+        matchedKeywords: {
+          some: {
+            keywordId: { in: keywordIds }
+          }
+        }
+      });
+    }
+    
+    if (companyIds.length > 0) {
+      whereConditions.push({
+        matchedCompanies: {
+          some: {
+            companyId: { in: companyIds }
+          }
+        }
+      });
+    }
+    
     const articles = await prisma.article.findMany({
-      where: {
-        OR: [
-          {
-            matchedKeywords: {
-              some: {
-                keywordId: { in: keywordIds }
-              }
-            }
-          },
-          // Add company matching logic here when implemented
-        ]
-      },
+      where: whereConditions.length > 0 ? { OR: whereConditions } : {},
       include: {
         feed: {
           select: { id: true, name: true }
         },
         matchedKeywords: {
           include: { keyword: true }
+        },
+        matchedCompanies: {
+          include: { company: true }
         }
       },
       skip: (page - 1) * limit,
