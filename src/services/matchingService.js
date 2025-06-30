@@ -172,13 +172,15 @@ async function matchArticleKeywords(article) {
       const aiInsights = await AIService.generateIncidentSummary(article);
       const imageUrl = AIService.extractImageUrl(article);
       
-      // Update article with AI-generated content
+      // Update article with AI-generated content and alert classification
       await prisma.article.update({
         where: { id: article.id },
         data: {
           summary: aiInsights.summary,
           recommendations: aiInsights.recommendations,
           severity: aiInsights.severity,
+          alertType: aiInsights.alertType,
+          classificationConfidence: aiInsights.classificationConfidence,
           imageUrl: imageUrl
         }
       });

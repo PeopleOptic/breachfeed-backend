@@ -108,15 +108,23 @@ router.get('/', authenticateApiKey, async (req, res, next) => {
     const limit = parseInt(req.query.limit) || 20;
     const { alertType, severity, search } = req.query;
     
+    // Debug logging
+    console.log('Articles filtering request:', {
+      page, limit, alertType, severity, search,
+      allParams: req.query
+    });
+    
     // Build where clause for filtering
     const where = {};
     
     if (alertType) {
       where.alertType = alertType;
+      console.log('Adding alertType filter:', alertType);
     }
     
     if (severity) {
       where.severity = severity;
+      console.log('Adding severity filter:', severity);
     }
     
     if (search) {
@@ -125,7 +133,10 @@ router.get('/', authenticateApiKey, async (req, res, next) => {
         { description: { contains: search, mode: 'insensitive' } },
         { content: { contains: search, mode: 'insensitive' } }
       ];
+      console.log('Adding search filter:', search);
     }
+    
+    console.log('Final where clause:', JSON.stringify(where, null, 2));
     
     const [articles, total] = await Promise.all([
       prisma.article.findMany({

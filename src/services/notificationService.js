@@ -45,12 +45,18 @@ if (process.env.APNS_KEY_PATH) {
 
 async function queueNotifications(article, matches) {
   try {
-    // Get unique company and keyword IDs from matches
+    // Get unique entity IDs from matches
     const companyIds = matches
       .filter(m => m.type === 'company')
       .map(m => m.id);
     const keywordIds = matches
       .filter(m => m.type === 'keyword')
+      .map(m => m.id);
+    const agencyIds = matches
+      .filter(m => m.type === 'agency')
+      .map(m => m.id);
+    const locationIds = matches
+      .filter(m => m.type === 'location')
       .map(m => m.id);
     
     // Find all active subscriptions for these matches
@@ -59,23 +65,61 @@ async function queueNotifications(article, matches) {
         isActive: true,
         OR: [
           { type: 'COMPANY', targetId: { in: companyIds } },
-          { type: 'KEYWORD', targetId: { in: keywordIds } }
+          { type: 'KEYWORD', targetId: { in: keywordIds } },
+          { type: 'AGENCY', targetId: { in: agencyIds } },
+          { type: 'LOCATION', targetId: { in: locationIds } }
         ]
       },
       include: {
         user: true,
         company: true,
-        keyword: true
+        keyword: true,
+        agency: true,
+        location: true
       }
     });
     
-    // Queue notifications for each subscription
-    for (const subscription of subscriptions) {
+    // Filter subscriptions based on alert type preferences
+    const filteredSubscriptions = subscriptions.filter(subscription => {
+      // Check if the article's alert type is in the subscription's alert type filter
+      const alertTypeFilter = subscription.alertTypeFilter || ['CONFIRMED_BREACH', 'SECURITY_INCIDENT', 'SECURITY_MENTION'];
+      const articleAlertType = article.alertType || 'SECURITY_MENTION';
+      
+      if (!alertTypeFilter.includes(articleAlertType)) {
+        logger.debug(`Subscription ${subscription.id} filtered out - alert type ${articleAlertType} not in filter: [${alertTypeFilter.join(', ')}]`);
+        return false;
+      }
+      
+      // Check severity filter if set
+      if (subscription.severityFilter) {
+        const severityOrder = { 'LOW': 1, 'MEDIUM': 2, 'HIGH': 3, 'CRITICAL': 4 };
+        const articleSeverity = severityOrder[article.severity] || 2;
+        const minSeverity = severityOrder[subscription.severityFilter] || 2;
+        
+        if (articleSeverity < minSeverity) {
+          logger.debug(`Subscription ${subscription.id} filtered out - severity ${article.severity} below threshold ${subscription.severityFilter}`);
+          return false;
+        }
+      }
+      
+      return true;
+    });
+    
+    // Queue notifications for each filtered subscription with priority based on alert type
+    for (const subscription of filteredSubscriptions) {
+      const alertType = article.alertType || 'SECURITY_MENTION';
+      const priority = getNotificationPriority(alertType);
+      
       if (subscription.emailEnabled) {
         await notificationQueue.add('email', {
           userId: subscription.userId,
           articleId: article.id,
-          subscription
+          subscription,
+          alertType: alertType,
+          priority: priority
+        }, {
+          priority: priority,
+          delay: alertType === 'CONFIRMED_BREACH' ? 0 : 1000 // Immediate for breaches, slight delay for others
         });
       }
       
@@ -83,7 +127,12 @@ async function queueNotifications(article, matches) {
         await notificationQueue.add('sms', {
           userId: subscription.userId,
           articleId: article.id,
-          subscription
+          subscription,
+          alertType: alertType,
+          priority: priority
+        }, {
+          priority: priority,
+          delay: alertType === 'CONFIRMED_BREACH' ? 0 : 2000
         });
       }
       
@@ -91,12 +140,17 @@ async function queueNotifications(article, matches) {
         await notificationQueue.add('push', {
           userId: subscription.userId,
           articleId: article.id,
-          subscription
+          subscription,
+          alertType: alertType,
+          priority: priority
+        }, {
+          priority: priority,
+          delay: alertType === 'CONFIRMED_BREACH' ? 0 : 1500
         });
       }
     }
     
-    logger.info(`Queued notifications for ${subscriptions.length} subscriptions`);
+    logger.info(`Queued notifications for ${filteredSubscriptions.length} filtered subscriptions (${subscriptions.length} total found)`);
   } catch (error) {
     logger.error('Error queueing notifications:', error);
   }
@@ -122,12 +176,37 @@ async function sendEmailNotification(job) {
     // Build email content
     const matchType = getMatchType(subscription);
     const severity = article.severity || 'MEDIUM';
+    const alertType = article.alertType || 'SECURITY_MENTION';
+    
     const severityColors = {
       'CRITICAL': '#d32f2f',
       'HIGH': '#f57c00', 
       'MEDIUM': '#fbc02d',
       'LOW': '#388e3c'
     };
+    
+    const alertTypeInfo = {
+      'CONFIRMED_BREACH': {
+        emoji: '🚨',
+        label: 'CONFIRMED BREACH',
+        color: '#d32f2f',
+        description: 'A security breach has been confirmed'
+      },
+      'SECURITY_INCIDENT': {
+        emoji: '⚠️',
+        label: 'ACTIVE INCIDENT',
+        color: '#f57c00',
+        description: 'A security incident is being investigated'
+      },
+      'SECURITY_MENTION': {
+        emoji: 'ℹ️',
+        label: 'SECURITY UPDATE',
+        color: '#1976d2',
+        description: 'Security-related information has been reported'
+      }
+    };
+    
+    const alertInfo = alertTypeInfo[alertType] || alertTypeInfo['SECURITY_MENTION'];
     
     // Create excerpt (first 200 characters)
     const excerpt = article.description ? 
@@ -139,11 +218,12 @@ async function sendEmailNotification(job) {
     const msg = {
       to: user.email,
       from: process.env.SENDGRID_FROM_EMAIL,
-      subject: `🚨 BreachFeed Alert: ${severity} - ${matchType}`,
+      subject: `${alertInfo.emoji} BreachFeed ${alertInfo.label}: ${matchType}`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; text-align: center;">
-            <h1 style="margin: 0; font-size: 24px;">🛡️ BreachFeed Security Alert</h1>
+          <div style="background: linear-gradient(135deg, ${alertInfo.color} 0%, #764ba2 100%); color: white; padding: 20px; text-align: center;">
+            <h1 style="margin: 0; font-size: 24px;">${alertInfo.emoji} BreachFeed ${alertInfo.label}</h1>
+            <p style="margin: 5px 0; opacity: 0.9;">${alertInfo.description}</p>
             <div style="background: ${severityColors[severity]}; color: white; padding: 5px 15px; border-radius: 20px; display: inline-block; margin-top: 10px; font-weight: bold;">
               ${severity} SEVERITY
             </div>
@@ -254,19 +334,30 @@ async function sendSmsNotification(job) {
     
     const matchType = getMatchType(subscription);
     const severity = article.severity || 'MEDIUM';
-    const severityEmojis = {
-      'CRITICAL': '🚨',
-      'HIGH': '⚠️',
-      'MEDIUM': '⚡',
-      'LOW': 'ℹ️'
+    const alertType = article.alertType || 'SECURITY_MENTION';
+    
+    const alertEmojis = {
+      'CONFIRMED_BREACH': '🚨',
+      'SECURITY_INCIDENT': '⚠️',
+      'SECURITY_MENTION': 'ℹ️'
     };
+    
+    const alertLabels = {
+      'CONFIRMED_BREACH': 'BREACH CONFIRMED',
+      'SECURITY_INCIDENT': 'ACTIVE INCIDENT',
+      'SECURITY_MENTION': 'Security Alert'
+    };
+    
+    const alertEmoji = alertEmojis[alertType] || alertEmojis['SECURITY_MENTION'];
+    const alertLabel = alertLabels[alertType] || alertLabels['SECURITY_MENTION'];
     
     // Create a concise excerpt for SMS
     const excerpt = article.summary || article.description || '';
     const shortExcerpt = excerpt.length > 60 ? excerpt.substring(0, 60) + '...' : excerpt;
     
-    const message = `${severityEmojis[severity]} BreachFeed ${severity} Alert
+    const message = `${alertEmoji} BreachFeed ${alertLabel}
 ${matchType}: ${article.title}
+Severity: ${severity}
 ${shortExcerpt}
 Read: ${article.link}`;
     
@@ -383,6 +474,22 @@ async function sendPushNotification(job) {
     });
     
     throw error;
+  }
+}
+
+/**
+ * Get notification priority based on alert type
+ */
+function getNotificationPriority(alertType) {
+  switch(alertType) {
+    case 'CONFIRMED_BREACH':
+      return 10; // Highest priority
+    case 'SECURITY_INCIDENT':
+      return 5;  // Medium priority
+    case 'SECURITY_MENTION':
+      return 1;  // Lowest priority
+    default:
+      return 1;
   }
 }
 
