@@ -57,7 +57,20 @@ router.get('/search', authenticateApiKey, async (req, res, next) => {
     const [articles, total] = await Promise.all([
       prisma.article.findMany({
         where,
-        include: {
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          link: true,
+          publishedAt: true,
+          severity: true,
+          imageUrl: true,
+          content: true,
+          categories: true,
+          summary: true,
+          recommendations: true,
+          alertType: true,
+          classificationConfidence: true,
           feed: {
             select: { id: true, name: true }
           },
@@ -96,7 +109,20 @@ router.get('/', authenticateApiKey, async (req, res, next) => {
     
     const [articles, total] = await Promise.all([
       prisma.article.findMany({
-        include: {
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          link: true,
+          publishedAt: true,
+          severity: true,
+          imageUrl: true,
+          content: true,
+          categories: true,
+          summary: true,
+          recommendations: true,
+          alertType: true,
+          classificationConfidence: true,
           feed: {
             select: { id: true, name: true }
           }
