@@ -384,6 +384,8 @@ router.get('/user-feed', authenticateApiKey, async (req, res, next) => {
       summary: article.summary,
       recommendations: article.recommendations,
       categories: article.categories,
+      alertType: article.alertType,
+      classificationConfidence: article.classificationConfidence,
       feed: article.feed,
       matchedKeywords: article.matchedKeywords.map(mk => ({
         keyword: mk.keyword,
