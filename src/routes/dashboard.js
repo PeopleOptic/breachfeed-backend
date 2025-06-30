@@ -167,6 +167,7 @@ router.get('/user-feed', authenticateApiKey, async (req, res, next) => {
     const {
       user_email,
       severity,
+      alertType,
       days = 7,
       limit = 20,
       page = 1
@@ -266,6 +267,11 @@ router.get('/user-feed', authenticateApiKey, async (req, res, next) => {
             where.severity = severity;
           }
           
+          // Add alert type filter
+          if (alertType) {
+            where.alertType = alertType;
+          }
+          
           articles = await prisma.article.findMany({
             where,
             include: {
@@ -308,6 +314,10 @@ router.get('/user-feed', authenticateApiKey, async (req, res, next) => {
       
       if (severity) {
         where.severity = severity;
+      }
+      
+      if (alertType) {
+        where.alertType = alertType;
       }
       
       articles = await prisma.article.findMany({

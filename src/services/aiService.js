@@ -19,23 +19,28 @@ class AIService {
       
       const content = `${article.title} ${article.description} ${article.content}`.toLowerCase();
       
+      // Classify alert type first
+      const alertClassification = this.classifyAlertType(content, article);
+      
       // Extract key information
       const incidentType = this.detectIncidentType(content);
       const severity = this.assessSeverity(content);
       const affectedEntities = this.extractAffectedEntities(content);
       
-      // Generate summary
-      const summary = this.createSummary(article, incidentType, severity, affectedEntities);
+      // Generate summary based on alert type
+      const summary = this.createSummary(article, incidentType, severity, affectedEntities, alertClassification.alertType);
       
-      // Generate recommendations
-      const recommendations = this.generateRecommendations(incidentType, severity);
+      // Generate recommendations based on alert type and severity
+      const recommendations = this.generateRecommendations(incidentType, severity, alertClassification.alertType);
       
       return {
         summary,
         recommendations,
         incidentType,
         severity,
-        affectedEntities
+        affectedEntities,
+        alertType: alertClassification.alertType,
+        classificationConfidence: alertClassification.confidence
       };
       
     } catch (error) {
@@ -45,24 +50,220 @@ class AIService {
         recommendations: 'Monitor the situation and review your security posture.',
         incidentType: 'OTHER',
         severity: 'MEDIUM',
-        affectedEntities: []
+        affectedEntities: [],
+        alertType: 'MENTION',
+        classificationConfidence: 0.3
       };
     }
   }
   
   /**
-   * Detect incident type from content
+   * Classify alert type: CONFIRMED_BREACH, INCIDENT, or MENTION
+   */
+  static classifyAlertType(content, article) {
+    try {
+      const lowerContent = content.toLowerCase();
+      
+      // Check for Confirmed Breach indicators
+      if (this.isConfirmedBreach(lowerContent, article)) {
+        return {
+          alertType: 'CONFIRMED_BREACH',
+          confidence: this.calculateBreachConfidence(lowerContent)
+        };
+      }
+      
+      // Check for Active Incident indicators
+      if (this.isActiveIncident(lowerContent, article)) {
+        return {
+          alertType: 'SECURITY_INCIDENT',
+          confidence: this.calculateIncidentConfidence(lowerContent)
+        };
+      }
+      
+      // Default to Mention
+      return {
+        alertType: 'SECURITY_MENTION',
+        confidence: 0.5
+      };
+    } catch (error) {
+      logger.error('Error classifying alert type:', error);
+      return {
+        alertType: 'SECURITY_MENTION',
+        confidence: 0.3
+      };
+    }
+  }
+  
+  /**
+   * Check if content indicates a confirmed breach
+   */
+  static isConfirmedBreach(content, article) {
+    // First check for uncertainty words that would disqualify as confirmed breach
+    const uncertaintyWords = /(potential|possible|suspected|alleged|investigating|may have|might have|could have|reports of)/i;
+    
+    const confirmedBreachPatterns = [
+      // Explicit confirmation language
+      /confirmed.{0,20}(data.?)?breach/i,
+      /breach.{0,20}(has been |was )?confirmed/i,
+      /(disclosed|announced|revealed|admitted).{0,30}(data.?)?breach/i,
+      /official.{0,20}(statement|announcement).{0,50}breach/i,
+      
+      // Specific breach indicators with numbers
+      /(\d+(?:,\d{3})*|\d+\.?\d*\s*(?:million|billion|thousand|k|m))\s+(?:records?|customers?|users?|accounts?).{0,50}(exposed|stolen|leaked|compromised|affected|breached)/i,
+      /(exposed|stolen|leaked|compromised).{0,50}(\d+(?:,\d{3})*|\d+\.?\d*\s*(?:million|billion|thousand|k|m))\s+(?:records?|customers?|users?|accounts?)/i,
+      
+      // Past tense breach language
+      /(was|were|have been|has been).{0,20}(breached|compromised|hacked)/i,
+      /breach.{0,20}(occurred|happened|took place)/i,
+      
+      // Regulatory or legal language
+      /(sec filing|regulatory disclosure|breach notification|notified.{0,20}authorities)/i,
+      /(class.?action|lawsuit|legal action).{0,50}data.?breach/i,
+      
+      // Confirmed successful attacks (damage done)
+      /ransomware.{0,50}(encrypted|locked|compromised)/i,
+      /(encrypted|locked).{0,50}(by.{0,20})?ransomware/i,
+      /(systems?|files?).{0,20}(encrypted|locked).{0,50}(ransomware|attack)/i,
+      
+      // Ransomware with payment confirmation or successful encryption
+      /ransom.{0,50}(paid|payment|demanded)/i,
+      /(paid|paying).{0,30}ransom/i,
+      
+      // Other confirmed successful attacks
+      /(successfully|managed to).{0,30}(breach|compromise|access|steal)/i,
+      /(gained access|stole|accessed).{0,30}(to.{0,20})?(database|systems?|files?|data)/i
+    ];
+    
+    const hasConfirmedPattern = confirmedBreachPatterns.some(pattern => pattern.test(content));
+    
+    // If we find confirmed breach patterns but also uncertainty language, 
+    // check if the uncertainty is about the same thing
+    if (hasConfirmedPattern && uncertaintyWords.test(content)) {
+      // Special case: if systems are confirmed encrypted but investigation is ongoing, still confirmed
+      if (/(systems?|files?).{0,20}(encrypted|locked)/i.test(content)) {
+        return true;
+      }
+      // Otherwise, uncertainty reduces confidence to incident level
+      return false;
+    }
+    
+    return hasConfirmedPattern;
+  }
+  
+  /**
+   * Check if content indicates an active incident
+   */
+  static isActiveIncident(content, article) {
+    // First check if it's already classified as a confirmed breach
+    if (this.isConfirmedBreach(content, article)) {
+      return false; // Don't double-classify
+    }
+    
+    const activeIncidentPatterns = [
+      // Investigation language (but not confirmed)
+      /(investigating|investigation into|looking into|probing).{0,30}(potential|possible|suspected)?.{0,20}(breach|incident|attack|compromise)/i,
+      /(potential|possible|suspected|alleged).{0,20}(breach|security incident|cyberattack|data leak)/i,
+      
+      // Ongoing attack language (but not completed/confirmed)
+      /(currently|actively|ongoing).{0,20}(under attack|experiencing|investigating|responding)/i,
+      /(experiencing|facing|under|suffering).{0,20}(cyberattack|security incident|ddos)/i,
+      
+      // Response and mitigation language (active response implies ongoing situation)
+      /(responding to|addressing|mitigating|containing).{0,30}(security|cyber)?.{0,20}(incident|attack)/i,
+      /(security team|incident response|ir team).{0,30}(investigating|responding|working)/i,
+      
+      // Service disruption (but not confirmed data loss)
+      /(services?|systems?|operations?).{0,20}(disrupted|affected|impacted|down|offline).{0,50}(due to|following|after).{0,20}(security|cyber)/i,
+      
+      // Unconfirmed but serious (uncertainty words indicate investigation phase)
+      /(may have|might have|could have).{0,20}(been )?(breached|compromised|affected)/i,
+      /reports?.{0,20}(of|suggest|indicate).{0,30}(breach|compromise|incident)/i,
+      
+      // Active containment without confirmation
+      /(working to|attempting to|trying to).{0,30}(contain|stop|prevent|mitigate)/i
+    ];
+    
+    // Exception: If ransomware has already encrypted systems, that's confirmed damage
+    if (/ransomware.{0,50}(encrypted|locked|affected)/i.test(content) || 
+        /(encrypted|locked).{0,50}ransomware/i.test(content)) {
+      return false; // This would be classified as confirmed breach
+    }
+    
+    // Also check publication date - recent articles about ongoing situations
+    const articleDate = new Date(article.publishedAt);
+    const daysSincePublished = (Date.now() - articleDate.getTime()) / (1000 * 60 * 60 * 24);
+    const isRecent = daysSincePublished < 7;
+    
+    const hasIncidentPattern = activeIncidentPatterns.some(pattern => pattern.test(content));
+    
+    // If it has incident patterns and is recent, it's more likely an active incident
+    // Also require some uncertainty language to distinguish from confirmed breaches
+    const hasUncertainty = /(investigating|potential|possible|suspected|may|might|could|reports of)/i.test(content);
+    
+    return hasIncidentPattern && (isRecent || content.includes('ongoing') || content.includes('currently')) && hasUncertainty;
+  }
+  
+  /**
+   * Calculate confidence score for breach classification
+   */
+  static calculateBreachConfidence(content) {
+    let confidence = 0.7; // Base confidence for confirmed breach
+    
+    // Increase confidence for multiple indicators
+    const indicators = [
+      /confirmed.{0,20}breach/i,
+      /(\d+(?:,\d{3})*|\d+\.?\d*\s*(?:million|billion))/i,
+      /(disclosed|announced|revealed)/i,
+      /official.{0,20}statement/i,
+      /(sec filing|regulatory|authorities notified)/i
+    ];
+    
+    const matchCount = indicators.filter(pattern => pattern.test(content)).length;
+    confidence += (matchCount * 0.05);
+    
+    // Cap at 1.0
+    return Math.min(confidence, 1.0);
+  }
+  
+  /**
+   * Calculate confidence score for incident classification
+   */
+  static calculateIncidentConfidence(content) {
+    let confidence = 0.6; // Base confidence for incident
+    
+    // Increase confidence for multiple indicators
+    const indicators = [
+      /investigating/i,
+      /(potential|possible|suspected)/i,
+      /currently.{0,20}(under|experiencing)/i,
+      /incident response/i,
+      /services?.{0,20}(disrupted|down)/i
+    ];
+    
+    const matchCount = indicators.filter(pattern => pattern.test(content)).length;
+    confidence += (matchCount * 0.05);
+    
+    // Decrease confidence if there are uncertainty words
+    if (/may have|might have|could have|allegedly/i.test(content)) {
+      confidence -= 0.1;
+    }
+    
+    return Math.max(0.3, Math.min(confidence, 0.9));
+  }
+
+  /**
+   * Detect incident type from content (enhanced)
    */
   static detectIncidentType(content) {
     const patterns = {
-      'DATA_BREACH': ['data breach', 'personal information', 'customer data', 'exposed database', 'leaked data'],
-      'RANSOMWARE': ['ransomware', 'encrypted files', 'ransom demand', 'lockbit', 'ryuk', 'conti'],
-      'MALWARE': ['malware', 'trojan', 'virus', 'backdoor', 'remote access'],
-      'PHISHING': ['phishing', 'fraudulent email', 'credential theft', 'fake website'],
-      'VULNERABILITY': ['vulnerability', 'security flaw', 'zero-day', 'exploit', 'patch'],
-      'DDOS': ['ddos', 'denial of service', 'traffic flood', 'service disruption'],
-      'INSIDER_THREAT': ['insider threat', 'employee', 'privileged access', 'internal'],
-      'SUPPLY_CHAIN': ['supply chain', 'third party', 'vendor', 'upstream']
+      'DATA_BREACH': ['data breach', 'personal information', 'customer data', 'exposed database', 'leaked data', 'records exposed', 'information stolen'],
+      'RANSOMWARE': ['ransomware', 'encrypted files', 'ransom demand', 'lockbit', 'ryuk', 'conti', 'ransom payment'],
+      'MALWARE': ['malware', 'trojan', 'virus', 'backdoor', 'remote access', 'infected systems'],
+      'PHISHING': ['phishing', 'fraudulent email', 'credential theft', 'fake website', 'spear phishing'],
+      'VULNERABILITY': ['vulnerability', 'security flaw', 'zero-day', 'exploit', 'patch', 'cve-'],
+      'DDOS': ['ddos', 'denial of service', 'traffic flood', 'service disruption', 'distributed denial'],
+      'INSIDER_THREAT': ['insider threat', 'employee', 'privileged access', 'internal', 'rogue employee'],
+      'SUPPLY_CHAIN': ['supply chain', 'third party', 'vendor', 'upstream', 'supplier compromise']
     };
     
     for (const [type, keywords] of Object.entries(patterns)) {
@@ -133,20 +334,64 @@ class AIService {
   /**
    * Create incident summary
    */
-  static createSummary(article, incidentType, severity, affectedEntities) {
-    const typeDescriptions = {
-      'DATA_BREACH': 'A data breach has been reported',
-      'RANSOMWARE': 'A ransomware attack has occurred',
-      'MALWARE': 'Malware activity has been detected',
-      'PHISHING': 'A phishing campaign has been identified',
-      'VULNERABILITY': 'A security vulnerability has been disclosed',
-      'DDOS': 'A denial of service attack has been reported',
-      'INSIDER_THREAT': 'An insider threat incident has occurred',
-      'SUPPLY_CHAIN': 'A supply chain security incident has been reported',
-      'OTHER': 'A cybersecurity incident has been reported'
+  static createSummary(article, incidentType, severity, affectedEntities, alertType) {
+    const alertPrefixes = {
+      'CONFIRMED_BREACH': '🚨 CONFIRMED BREACH: ',
+      'INCIDENT': '⚠️ ACTIVE INCIDENT: ',
+      'MENTION': 'ℹ️ SECURITY UPDATE: '
     };
     
-    let summary = typeDescriptions[incidentType] || typeDescriptions['OTHER'];
+    const typeDescriptions = {
+      'DATA_BREACH': {
+        'CONFIRMED_BREACH': 'A confirmed data breach has exposed sensitive information',
+        'INCIDENT': 'A potential data breach is being investigated',
+        'MENTION': 'Data breach activity has been mentioned'
+      },
+      'RANSOMWARE': {
+        'CONFIRMED_BREACH': 'A ransomware attack has successfully encrypted systems',
+        'INCIDENT': 'An active ransomware attack is in progress',
+        'MENTION': 'Ransomware activity has been reported'
+      },
+      'MALWARE': {
+        'CONFIRMED_BREACH': 'Malware has compromised systems',
+        'INCIDENT': 'Malware activity is currently being addressed',
+        'MENTION': 'Malware has been mentioned in security context'
+      },
+      'PHISHING': {
+        'CONFIRMED_BREACH': 'A phishing campaign has successfully compromised accounts',
+        'INCIDENT': 'An active phishing campaign is targeting users',
+        'MENTION': 'Phishing activity has been identified'
+      },
+      'VULNERABILITY': {
+        'CONFIRMED_BREACH': 'A vulnerability has been actively exploited',
+        'INCIDENT': 'A critical vulnerability is being assessed',
+        'MENTION': 'A security vulnerability has been disclosed'
+      },
+      'DDOS': {
+        'CONFIRMED_BREACH': 'Services have been taken offline by a DDoS attack',
+        'INCIDENT': 'An ongoing DDoS attack is affecting services',
+        'MENTION': 'DDoS activity has been reported'
+      },
+      'INSIDER_THREAT': {
+        'CONFIRMED_BREACH': 'An insider has compromised sensitive data',
+        'INCIDENT': 'Potential insider threat activity is being investigated',
+        'MENTION': 'Insider threat concerns have been raised'
+      },
+      'SUPPLY_CHAIN': {
+        'CONFIRMED_BREACH': 'A supply chain attack has compromised systems',
+        'INCIDENT': 'Supply chain security incident is being investigated',
+        'MENTION': 'Supply chain security has been mentioned'
+      },
+      'OTHER': {
+        'CONFIRMED_BREACH': 'A confirmed security breach has occurred',
+        'INCIDENT': 'A security incident is being investigated',
+        'MENTION': 'Security-related activity has been reported'
+      }
+    };
+    
+    // Get appropriate description based on incident and alert type
+    const descriptions = typeDescriptions[incidentType] || typeDescriptions['OTHER'];
+    let summary = alertPrefixes[alertType] + (descriptions[alertType] || descriptions['MENTION']);
     
     if (affectedEntities.length > 0) {
       summary += ` affecting ${affectedEntities.slice(0, 2).join(' and ')}`;
@@ -192,7 +437,35 @@ class AIService {
   /**
    * Generate remediation recommendations
    */
-  static generateRecommendations(incidentType, severity) {
+  static generateRecommendations(incidentType, severity, alertType) {
+    // Alert type specific prefix recommendations
+    const alertTypeRecommendations = {
+      'CONFIRMED_BREACH': [
+        '🚨 IMMEDIATE ACTION REQUIRED:',
+        '1. Activate incident response team immediately',
+        '2. Contain the breach and preserve evidence',
+        '3. Notify legal counsel and regulatory authorities as required',
+        '4. Begin forensic investigation to determine scope',
+        '5. Prepare breach notification communications'
+      ],
+      'INCIDENT': [
+        '⚠️ URGENT INVESTIGATION NEEDED:',
+        '1. Initiate incident response procedures',
+        '2. Gather and preserve potential evidence',
+        '3. Monitor systems for suspicious activity',
+        '4. Review logs and access patterns',
+        '5. Prepare containment strategies'
+      ],
+      'MENTION': [
+        'ℹ️ PROACTIVE MEASURES RECOMMENDED:',
+        '1. Review your security posture',
+        '2. Ensure patches are up to date',
+        '3. Monitor for related threats',
+        '4. Review security awareness training',
+        '5. Update threat intelligence feeds'
+      ]
+    };
+    
     const baseRecommendations = {
       'DATA_BREACH': [
         'Review access controls and user permissions',
@@ -268,7 +541,16 @@ class AIService {
       );
     }
     
-    return recommendations.slice(0, 5).map((rec, index) => `${index + 1}. ${rec}`).join('\n');
+    // Combine alert type specific recommendations with base recommendations
+    const alertPrefix = alertTypeRecommendations[alertType] || alertTypeRecommendations['MENTION'];
+    const combinedRecommendations = [
+      alertPrefix[0], // Header
+      ...alertPrefix.slice(1, 6), // Top 5 alert-specific recommendations
+      '\nAdditional recommendations based on incident type:',
+      ...recommendations.slice(0, 3).map((rec, index) => `${index + 1}. ${rec}`)
+    ];
+    
+    return combinedRecommendations.join('\n');
   }
   
   /**
