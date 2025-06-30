@@ -441,4 +441,71 @@ router.get('/user/feed', authenticateJWT, async (req, res, next) => {
   }
 });
 
+// Update article schema
+const updateArticleSchema = Joi.object({
+  alertType: Joi.string().valid('CONFIRMED_BREACH', 'SECURITY_INCIDENT', 'SECURITY_MENTION').optional(),
+  severity: Joi.string().valid('LOW', 'MEDIUM', 'HIGH', 'CRITICAL').optional(),
+  classificationConfidence: Joi.number().min(0).max(1).optional(),
+  categories: Joi.array().items(Joi.string()).optional()
+});
+
+// Update article classification (admin functionality)
+router.patch('/:id', authenticateApiKey, validateRequest(updateArticleSchema), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+    
+    // Check if article exists
+    const existingArticle = await prisma.article.findUnique({
+      where: { id },
+      select: { id: true, title: true }
+    });
+    
+    if (!existingArticle) {
+      return res.status(404).json({ error: 'Article not found' });
+    }
+    
+    // Update article with new classification data
+    const updatedArticle = await prisma.article.update({
+      where: { id },
+      data: updateData,
+      include: {
+        feed: {
+          select: {
+            id: true,
+            name: true,
+            url: true
+          }
+        },
+        matchedKeywords: {
+          include: { keyword: true }
+        },
+        matchedCompanies: {
+          include: { company: true }
+        },
+        matchedAgencies: {
+          include: { agency: true }
+        },
+        matchedLocations: {
+          include: { location: true }
+        }
+      }
+    });
+    
+    // Log the update for audit purposes
+    console.log(`Article ${id} updated:`, {
+      title: existingArticle.title,
+      changes: updateData,
+      timestamp: new Date().toISOString()
+    });
+    
+    res.json(updatedArticle);
+  } catch (error) {
+    if (error.code === 'P2025') {
+      return res.status(404).json({ error: 'Article not found' });
+    }
+    next(error);
+  }
+});
+
 module.exports = router;
