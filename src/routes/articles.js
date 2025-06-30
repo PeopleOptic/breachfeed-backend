@@ -101,14 +101,35 @@ router.get('/search', authenticateApiKey, async (req, res, next) => {
   }
 });
 
-// Get all articles (paginated)
+// Get all articles (paginated with filtering)
 router.get('/', authenticateApiKey, async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
+    const { alertType, severity, search } = req.query;
+    
+    // Build where clause for filtering
+    const where = {};
+    
+    if (alertType) {
+      where.alertType = alertType;
+    }
+    
+    if (severity) {
+      where.severity = severity;
+    }
+    
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+        { content: { contains: search, mode: 'insensitive' } }
+      ];
+    }
     
     const [articles, total] = await Promise.all([
       prisma.article.findMany({
+        where,
         select: {
           id: true,
           title: true,
@@ -125,13 +146,25 @@ router.get('/', authenticateApiKey, async (req, res, next) => {
           classificationConfidence: true,
           feed: {
             select: { id: true, name: true }
+          },
+          matchedKeywords: {
+            include: { keyword: true }
+          },
+          matchedCompanies: {
+            include: { company: true }
+          },
+          matchedAgencies: {
+            include: { agency: true }
+          },
+          matchedLocations: {
+            include: { location: true }
           }
         },
         skip: (page - 1) * limit,
         take: limit,
         orderBy: { publishedAt: 'desc' }
       }),
-      prisma.article.count()
+      prisma.article.count({ where })
     ]);
     
     res.json({
