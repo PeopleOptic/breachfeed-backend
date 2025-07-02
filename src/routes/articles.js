@@ -569,33 +569,11 @@ router.get('/:identifier', authenticateApiKey, async (req, res, next) => {
     // Use ID for now since slug doesn't exist in production
     const whereClause = { id: identifier };
     
+    // First get basic article data
     const article = await prisma.article.findFirst({
       where: whereClause,
       include: {
-        feed: true,
-        matchedKeywords: {
-          include: {
-            keyword: true
-          }
-        },
-        matchedCompanies: {
-          include: {
-            company: true
-          }
-        },
-        matchedAgencies: {
-          include: {
-            agency: true
-          }
-        },
-        matchedLocations: {
-          include: {
-            location: true
-          }
-        },
-        votes: userId ? {
-          where: { userId }
-        } : false
+        feed: true
       }
     });
     
@@ -603,27 +581,87 @@ router.get('/:identifier', authenticateApiKey, async (req, res, next) => {
       return res.status(404).json({ error: 'Article not found' });
     }
     
-    // Skip slug generation for now
+    // Then get matched entities separately to avoid complex joins
+    try {
+      const [matchedKeywords, matchedCompanies, matchedAgencies, matchedLocations] = await Promise.all([
+        prisma.matchedKeyword.findMany({
+          where: { articleId: article.id },
+          include: { keyword: true }
+        }),
+        prisma.matchedCompany.findMany({
+          where: { articleId: article.id },
+          include: { company: true }
+        }),
+        prisma.matchedAgency.findMany({
+          where: { articleId: article.id },
+          include: { agency: true }
+        }),
+        prisma.matchedLocation.findMany({
+          where: { articleId: article.id },
+          include: { location: true }
+        })
+      ]);
+      
+      article.matchedKeywords = matchedKeywords;
+      article.matchedCompanies = matchedCompanies;
+      article.matchedAgencies = matchedAgencies;
+      article.matchedLocations = matchedLocations;
+    } catch (error) {
+      console.error('Error fetching matched entities:', error);
+      // Continue without matches if they fail
+      article.matchedKeywords = [];
+      article.matchedCompanies = [];
+      article.matchedAgencies = [];
+      article.matchedLocations = [];
+    }
     
-    // Calculate vote summary
-    const voteStats = await prisma.articleVote.groupBy({
-      by: ['voteType'],
-      where: { articleId: article.id },
-      _count: true
-    });
+    // Get vote stats
+    let voteStats = {
+      upvotes: 0,
+      downvotes: 0,
+      score: 0,
+      userVote: null
+    };
     
-    const upvotes = voteStats.find(v => v.voteType === 'UP')?._count || 0;
-    const downvotes = voteStats.find(v => v.voteType === 'DOWN')?._count || 0;
+    try {
+      const votes = await prisma.articleVote.groupBy({
+        by: ['voteType'],
+        where: { articleId: article.id },
+        _count: true
+      });
+      
+      const upvotes = votes.find(v => v.voteType === 'UP')?._count || 0;
+      const downvotes = votes.find(v => v.voteType === 'DOWN')?._count || 0;
+      
+      voteStats = {
+        upvotes,
+        downvotes,
+        score: upvotes - downvotes,
+        userVote: null
+      };
+      
+      // Get user vote if user ID provided
+      if (userId) {
+        const userVote = await prisma.articleVote.findUnique({
+          where: {
+            userId_articleId: {
+              userId,
+              articleId: article.id
+            }
+          }
+        });
+        if (userVote) {
+          voteStats.userVote = userVote.voteType;
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching vote stats:', error);
+    }
     
     // Prepare response
     const response = {
       ...article,
-      voteStats: {
-        upvotes,
-        downvotes,
-        score: upvotes - downvotes,
-        userVote: article.votes && article.votes[0] ? article.votes[0].voteType : null
-      }
+      voteStats
     };
     
     // Remove full content if not requested
@@ -631,12 +669,13 @@ router.get('/:identifier', authenticateApiKey, async (req, res, next) => {
       delete response.content;
     }
     
-    // Remove votes array from response
-    delete response.votes;
-    
     res.json(response);
   } catch (error) {
-    next(error);
+    console.error('Error in GET /articles/:identifier:', error);
+    res.status(500).json({
+      error: 'Failed to fetch article',
+      message: error.message
+    });
   }
 });
 
