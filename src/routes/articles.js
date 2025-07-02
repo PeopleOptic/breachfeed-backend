@@ -108,7 +108,6 @@ router.get('/search', authenticateApiKey, async (req, res, next) => {
           title: true,
           description: true,
           link: true,
-          slug: true,
           publishedAt: true,
           severity: true,
           imageUrl: true,
@@ -174,7 +173,6 @@ router.get('/popular', authenticateApiKey, async (req, res, next) => {
           title: true,
           description: true,
           link: true,
-          slug: true,
           publishedAt: true,
           severity: true,
           imageUrl: true,
@@ -263,7 +261,6 @@ router.get('/', authenticateApiKey, async (req, res, next) => {
           title: true,
           description: true,
           link: true,
-          slug: true,
           publishedAt: true,
           severity: true,
           imageUrl: true,
@@ -569,10 +566,8 @@ router.get('/:identifier', authenticateApiKey, async (req, res, next) => {
     const userId = req.headers['x-user-id']; // Optional user ID for vote status
     const { identifier } = req.params;
     
-    // Check if identifier is a slug or ID
-    const whereClause = identifier.match(/^[a-z0-9-]+$/) && !identifier.match(/^[a-z0-9]{25}$/) 
-      ? { slug: identifier } 
-      : { id: identifier };
+    // Use ID for now since slug doesn't exist in production
+    const whereClause = { id: identifier };
     
     const article = await prisma.article.findFirst({
       where: whereClause,
@@ -608,15 +603,7 @@ router.get('/:identifier', authenticateApiKey, async (req, res, next) => {
       return res.status(404).json({ error: 'Article not found' });
     }
     
-    // Generate slug if not exists
-    if (!article.slug) {
-      const slug = generateSlug(article.title);
-      await prisma.article.update({
-        where: { id: article.id },
-        data: { slug }
-      });
-      article.slug = slug;
-    }
+    // Skip slug generation for now
     
     // Calculate vote summary
     const voteStats = await prisma.articleVote.groupBy({
@@ -943,7 +930,6 @@ router.get('/by-tag/:tag', authenticateApiKey, async (req, res, next) => {
           title: true,
           description: true,
           link: true,
-          slug: true,
           publishedAt: true,
           severity: true,
           imageUrl: true,
