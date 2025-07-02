@@ -118,6 +118,8 @@ router.post('/quick', authenticateApiKey, validateRequest(quickSubscribeSchema),
     const userIdHeader = req.headers['x-user-id'];
     const userEmail = req.headers['x-user-email'];
     
+    console.log('Quick subscribe request:', { entityType, entityId, entityName, userEmail });
+    
     // Try to find user by WordPress user ID first (for backward compatibility)
     let user = null;
     let userId = null;
@@ -166,69 +168,169 @@ router.post('/quick', authenticateApiKey, validateRequest(quickSubscribeSchema),
     // Auto-create entity if it doesn't exist
     try {
       if (entityType === 'COMPANY') {
-        const company = await prisma.company.findUnique({ where: { id: entityId } });
+        let company = await prisma.company.findUnique({ where: { id: entityId } });
         if (!company) {
-          // Auto-create company
-          await prisma.company.create({
-            data: {
-              id: entityId,
-              name: entityName,
-              isActive: true
+          // Try to find by name first
+          company = await prisma.company.findUnique({ where: { name: entityName } });
+          if (company) {
+            // Company exists with different ID, use the existing one
+            entityId = company.id;
+            console.log(`Found existing company by name: ${entityName} (${company.id})`);
+          } else {
+            // Auto-create company
+            try {
+              company = await prisma.company.create({
+                data: {
+                  id: entityId,
+                  name: entityName,
+                  isActive: true
+                }
+              });
+              console.log(`Auto-created company: ${entityName} (${entityId})`);
+            } catch (createErr) {
+              if (createErr.code === 'P2002') {
+                // Unique constraint - try to find again
+                company = await prisma.company.findFirst({
+                  where: { OR: [{ id: entityId }, { name: entityName }] }
+                });
+                if (company) {
+                  entityId = company.id;
+                  console.log(`Found company after conflict: ${entityName} (${company.id})`);
+                }
+              } else {
+                throw createErr;
+              }
             }
-          });
-          console.log(`Auto-created company: ${entityName} (${entityId})`);
+          }
         }
       } else if (entityType === 'AGENCY') {
-        const agency = await prisma.agency.findUnique({ where: { id: entityId } });
+        let agency = await prisma.agency.findUnique({ where: { id: entityId } });
         if (!agency) {
-          // Auto-create agency
-          await prisma.agency.create({
-            data: {
-              id: entityId,
-              name: entityName,
-              isActive: true
+          // Try to find by name first
+          agency = await prisma.agency.findUnique({ where: { name: entityName } });
+          if (agency) {
+            entityId = agency.id;
+            console.log(`Found existing agency by name: ${entityName} (${agency.id})`);
+          } else {
+            try {
+              agency = await prisma.agency.create({
+                data: {
+                  id: entityId,
+                  name: entityName,
+                  isActive: true
+                }
+              });
+              console.log(`Auto-created agency: ${entityName} (${entityId})`);
+            } catch (createErr) {
+              if (createErr.code === 'P2002') {
+                agency = await prisma.agency.findFirst({
+                  where: { OR: [{ id: entityId }, { name: entityName }] }
+                });
+                if (agency) {
+                  entityId = agency.id;
+                  console.log(`Found agency after conflict: ${entityName} (${agency.id})`);
+                }
+              } else {
+                throw createErr;
+              }
             }
-          });
-          console.log(`Auto-created agency: ${entityName} (${entityId})`);
+          }
         }
       } else if (entityType === 'LOCATION') {
-        const location = await prisma.location.findUnique({ where: { id: entityId } });
+        let location = await prisma.location.findUnique({ where: { id: entityId } });
         if (!location) {
-          // Auto-create location - extract country from name if possible
-          const country = entityName.includes(',') ? entityName.split(',').pop().trim() : 'Unknown';
-          await prisma.location.create({
-            data: {
-              id: entityId,
-              name: entityName,
-              country: country,
-              isActive: true
+          // Try to find by name first
+          location = await prisma.location.findUnique({ where: { name: entityName } });
+          if (location) {
+            entityId = location.id;
+            console.log(`Found existing location by name: ${entityName} (${location.id})`);
+          } else {
+            const country = entityName.includes(',') ? entityName.split(',').pop().trim() : 'Unknown';
+            try {
+              location = await prisma.location.create({
+                data: {
+                  id: entityId,
+                  name: entityName,
+                  country: country,
+                  isActive: true
+                }
+              });
+              console.log(`Auto-created location: ${entityName} (${entityId})`);
+            } catch (createErr) {
+              if (createErr.code === 'P2002') {
+                location = await prisma.location.findFirst({
+                  where: { OR: [{ id: entityId }, { name: entityName }] }
+                });
+                if (location) {
+                  entityId = location.id;
+                  console.log(`Found location after conflict: ${entityName} (${location.id})`);
+                }
+              } else {
+                throw createErr;
+              }
             }
-          });
-          console.log(`Auto-created location: ${entityName} (${entityId})`);
+          }
         }
       } else if (entityType === 'KEYWORD') {
-        const keyword = await prisma.keyword.findUnique({ where: { id: entityId } });
+        let keyword = await prisma.keyword.findUnique({ where: { id: entityId } });
         if (!keyword) {
-          // Auto-create keyword
-          await prisma.keyword.create({
-            data: {
-              id: entityId,
-              term: entityName,
-              isActive: true
+          // Try to find by term first
+          keyword = await prisma.keyword.findUnique({ where: { term: entityName } });
+          if (keyword) {
+            entityId = keyword.id;
+            console.log(`Found existing keyword by term: ${entityName} (${keyword.id})`);
+          } else {
+            try {
+              keyword = await prisma.keyword.create({
+                data: {
+                  id: entityId,
+                  term: entityName,
+                  isActive: true
+                }
+              });
+              console.log(`Auto-created keyword: ${entityName} (${entityId})`);
+            } catch (createErr) {
+              if (createErr.code === 'P2002') {
+                keyword = await prisma.keyword.findFirst({
+                  where: { OR: [{ id: entityId }, { term: entityName }] }
+                });
+                if (keyword) {
+                  entityId = keyword.id;
+                  console.log(`Found keyword after conflict: ${entityName} (${keyword.id})`);
+                }
+              } else {
+                throw createErr;
+              }
             }
-          });
-          console.log(`Auto-created keyword: ${entityName} (${entityId})`);
+          }
         }
+      }
+      
+      // Verify entity exists before proceeding
+      let entityExists = false;
+      if (entityType === 'COMPANY') {
+        entityExists = await prisma.company.findUnique({ where: { id: entityId } }) !== null;
+      } else if (entityType === 'AGENCY') {
+        entityExists = await prisma.agency.findUnique({ where: { id: entityId } }) !== null;
+      } else if (entityType === 'LOCATION') {
+        entityExists = await prisma.location.findUnique({ where: { id: entityId } }) !== null;
+      } else if (entityType === 'KEYWORD') {
+        entityExists = await prisma.keyword.findUnique({ where: { id: entityId } }) !== null;
+      }
+      
+      if (!entityExists) {
+        console.error(`Entity still doesn't exist after creation attempt: ${entityType} ${entityName} (${entityId})`);
+        return res.status(400).json({ 
+          error: `Failed to verify ${entityType}: ${entityName}`,
+          details: 'Entity could not be created or found' 
+        });
       }
     } catch (err) {
       console.error('Error creating entity:', err);
-      // If it's a unique constraint error, the entity was created by another request
-      if (err.code !== 'P2002') {
-        return res.status(400).json({ 
-          error: `Failed to create ${entityType}: ${entityName}`,
-          details: err.message 
-        });
-      }
+      return res.status(400).json({ 
+        error: `Failed to create ${entityType}: ${entityName}`,
+        details: err.message 
+      });
     }
 
     // Check if subscription already exists
@@ -258,24 +360,40 @@ router.post('/quick', authenticateApiKey, validateRequest(quickSubscribeSchema),
     }
     
     // Create subscription with smart defaults
-    const subscription = await prisma.subscription.create({
-      data: {
-        userId,
-        type: entityType,
-        targetId: entityId,
-        emailEnabled: true,
-        smsEnabled: false,
-        pushEnabled: false,
-        isActive: true,
-        alertTypeFilter: ['CONFIRMED_BREACH', 'SECURITY_INCIDENT', 'SECURITY_MENTION']
-      },
-      include: {
-        company: entityType === 'COMPANY',
-        keyword: entityType === 'KEYWORD',
-        agency: entityType === 'AGENCY',
-        location: entityType === 'LOCATION'
+    let subscription;
+    try {
+      subscription = await prisma.subscription.create({
+        data: {
+          userId,
+          type: entityType,
+          targetId: entityId,
+          emailEnabled: true,
+          smsEnabled: false,
+          pushEnabled: false,
+          isActive: true,
+          alertTypeFilter: ['CONFIRMED_BREACH', 'SECURITY_INCIDENT', 'SECURITY_MENTION']
+        },
+        include: {
+          company: entityType === 'COMPANY',
+          keyword: entityType === 'KEYWORD',
+          agency: entityType === 'AGENCY',
+          location: entityType === 'LOCATION'
+        }
+      });
+    } catch (createErr) {
+      console.error('Subscription creation error:', createErr);
+      if (createErr.code === 'P2003') {
+        // Foreign key constraint error
+        return res.status(400).json({ 
+          error: 'Invalid reference: The entity you are trying to subscribe to does not exist',
+          details: `${entityType} with ID ${entityId} not found`,
+          entityType,
+          entityId,
+          entityName
+        });
       }
-    });
+      throw createErr;
+    }
     
     res.status(201).json({
       message: `Subscribed to ${entityName}`,
@@ -283,13 +401,37 @@ router.post('/quick', authenticateApiKey, validateRequest(quickSubscribeSchema),
     });
   } catch (error) {
     console.error('Quick subscribe error:', error);
+    console.error('Error details:', {
+      code: error.code,
+      message: error.message,
+      meta: error.meta,
+      entityType,
+      entityId,
+      entityName,
+      userId
+    });
+    
     if (error.code === 'P2002') {
       return res.status(409).json({ 
         error: 'Subscription already exists',
         subscriptionId: existingSubscription?.id 
       });
+    } else if (error.code === 'P2003') {
+      return res.status(400).json({ 
+        error: 'Invalid reference: The entity you are trying to subscribe to does not exist',
+        details: error.message,
+        entityType,
+        entityId,
+        entityName
+      });
     }
-    next(error);
+    
+    // Return more detailed error for debugging
+    return res.status(500).json({ 
+      error: 'Failed to create subscription',
+      details: error.message,
+      code: error.code
+    });
   }
 });
 
@@ -374,6 +516,67 @@ router.delete('/:id', async (req, res, next) => {
     });
     
     res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Debug endpoint to check entity existence
+router.get('/debug/entity/:type/:id', authenticateApiKey, async (req, res, next) => {
+  try {
+    const { type, id } = req.params;
+    let entity = null;
+    
+    switch(type.toUpperCase()) {
+      case 'COMPANY':
+        entity = await prisma.company.findUnique({ where: { id } });
+        break;
+      case 'AGENCY':
+        entity = await prisma.agency.findUnique({ where: { id } });
+        break;
+      case 'LOCATION':
+        entity = await prisma.location.findUnique({ where: { id } });
+        break;
+      case 'KEYWORD':
+        entity = await prisma.keyword.findUnique({ where: { id } });
+        break;
+      default:
+        return res.status(400).json({ error: 'Invalid entity type' });
+    }
+    
+    res.json({
+      type: type.toUpperCase(),
+      id,
+      exists: entity !== null,
+      entity
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Debug endpoint to check entity existence
+router.get('/debug/entity/:type/:id', authenticateApiKey, async (req, res, next) => {
+  try {
+    const { type, id } = req.params;
+    let entity = null;
+    
+    if (type === 'COMPANY') {
+      entity = await prisma.company.findUnique({ where: { id } });
+    } else if (type === 'AGENCY') {
+      entity = await prisma.agency.findUnique({ where: { id } });
+    } else if (type === 'LOCATION') {
+      entity = await prisma.location.findUnique({ where: { id } });
+    } else if (type === 'KEYWORD') {
+      entity = await prisma.keyword.findUnique({ where: { id } });
+    }
+    
+    res.json({ 
+      exists: !!entity, 
+      entity,
+      type,
+      id 
+    });
   } catch (error) {
     next(error);
   }
