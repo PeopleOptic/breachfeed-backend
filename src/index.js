@@ -18,6 +18,7 @@ const notificationRoutes = require('./routes/notifications');
 const webhookRoutes = require('./routes/webhooks');
 const companyRoutes = require('./routes/companies');
 const dashboardRoutes = require('./routes/dashboard');
+const testRoutes = require('./routes/test');
 
 const app = express();
 const prisma = new PrismaClient();
@@ -47,6 +48,7 @@ app.get('/health', (req, res) => {
 });
 
 // Routes
+app.use('/api/test', testRoutes);
 app.use('/api/feeds', feedRoutes);
 app.use('/api/articles', articleRoutes);
 app.use('/api/companies', companyRoutes);
