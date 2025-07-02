@@ -37,6 +37,35 @@ const updateArticleSchema = Joi.object({
   categories: Joi.array().items(Joi.string()).optional()
 });
 
+// Test endpoint to debug database issues
+router.get('/test', authenticateApiKey, async (req, res, next) => {
+  try {
+    // First, try to count articles
+    const count = await prisma.article.count();
+    
+    // Then try to get one article with minimal fields
+    const article = await prisma.article.findFirst({
+      select: {
+        id: true,
+        title: true,
+        publishedAt: true
+      }
+    });
+    
+    res.json({
+      count,
+      sample: article,
+      status: 'ok'
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error.message,
+      code: error.code,
+      meta: error.meta
+    });
+  }
+});
+
 // Search articles with filters
 router.get('/search', authenticateApiKey, async (req, res, next) => {
   try {
@@ -206,23 +235,15 @@ router.get('/', authenticateApiKey, async (req, res, next) => {
     const limit = parseInt(req.query.limit) || 20;
     const { alertType, severity, search } = req.query;
     
-    // Debug logging
-    console.log('Articles filtering request:', {
-      page, limit, alertType, severity, search,
-      allParams: req.query
-    });
-    
     // Build where clause for filtering
     const where = {};
     
     if (alertType) {
       where.alertType = alertType;
-      console.log('Adding alertType filter:', alertType);
     }
     
     if (severity) {
       where.severity = severity;
-      console.log('Adding severity filter:', severity);
     }
     
     if (search) {
@@ -231,11 +252,9 @@ router.get('/', authenticateApiKey, async (req, res, next) => {
         { description: { contains: search, mode: 'insensitive' } },
         { content: { contains: search, mode: 'insensitive' } }
       ];
-      console.log('Adding search filter:', search);
     }
     
-    console.log('Final where clause:', JSON.stringify(where, null, 2));
-    
+    // First try a simple query
     const [articles, total] = await Promise.all([
       prisma.article.findMany({
         where,
@@ -256,18 +275,6 @@ router.get('/', authenticateApiKey, async (req, res, next) => {
           classificationConfidence: true,
           feed: {
             select: { id: true, name: true }
-          },
-          matchedKeywords: {
-            include: { keyword: true }
-          },
-          matchedCompanies: {
-            include: { company: true }
-          },
-          matchedAgencies: {
-            include: { agency: true }
-          },
-          matchedLocations: {
-            include: { location: true }
           }
         },
         skip: (page - 1) * limit,
@@ -277,8 +284,46 @@ router.get('/', authenticateApiKey, async (req, res, next) => {
       prisma.article.count({ where })
     ]);
     
+    // Then add the matched entities if the basic query works
+    const articlesWithMatches = await Promise.all(
+      articles.map(async (article) => {
+        try {
+          const [matchedKeywords, matchedCompanies, matchedAgencies, matchedLocations] = await Promise.all([
+            prisma.matchedKeyword.findMany({
+              where: { articleId: article.id },
+              include: { keyword: true }
+            }),
+            prisma.matchedCompany.findMany({
+              where: { articleId: article.id },
+              include: { company: true }
+            }),
+            prisma.matchedAgency.findMany({
+              where: { articleId: article.id },
+              include: { agency: true }
+            }),
+            prisma.matchedLocation.findMany({
+              where: { articleId: article.id },
+              include: { location: true }
+            })
+          ]);
+          
+          return {
+            ...article,
+            matchedKeywords,
+            matchedCompanies,
+            matchedAgencies,
+            matchedLocations
+          };
+        } catch (error) {
+          // If matches fail, return article without them
+          console.error('Error fetching matches for article:', article.id, error);
+          return article;
+        }
+      })
+    );
+    
     res.json({
-      articles,
+      articles: articlesWithMatches,
       pagination: {
         page,
         limit,
@@ -287,7 +332,12 @@ router.get('/', authenticateApiKey, async (req, res, next) => {
       }
     });
   } catch (error) {
-    next(error);
+    console.error('Error in GET /articles:', error);
+    res.status(500).json({
+      error: 'Failed to fetch articles',
+      message: error.message,
+      code: error.code
+    });
   }
 });
 
