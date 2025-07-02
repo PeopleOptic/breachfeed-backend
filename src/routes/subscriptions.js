@@ -122,14 +122,19 @@ router.post('/quick', authenticateApiKey, validateRequest(quickSubscribeSchema),
     let user = null;
     let userId = null;
     
-    if (userIdHeader) {
+    if (userIdHeader && userIdHeader !== '' && userIdHeader !== 'undefined' && userIdHeader !== 'null') {
       // First try as a backend user ID
-      user = await prisma.user.findUnique({
-        where: { id: userIdHeader }
-      });
-      
-      if (user) {
-        userId = user.id;
+      try {
+        user = await prisma.user.findUnique({
+          where: { id: userIdHeader }
+        });
+        
+        if (user) {
+          userId = user.id;
+        }
+      } catch (err) {
+        // Invalid user ID format, continue with email auth
+        console.log('Invalid user ID format, continuing with email auth');
       }
     }
     
