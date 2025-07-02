@@ -32,15 +32,19 @@ if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
 
 // Initialize APNS
 let apnProvider;
-if (process.env.APNS_KEY_PATH) {
-  apnProvider = new apn.Provider({
-    token: {
-      key: process.env.APNS_KEY_PATH,
-      keyId: process.env.APNS_KEY_ID,
-      teamId: process.env.APNS_TEAM_ID,
-    },
-    production: process.env.NODE_ENV === 'production'
-  });
+if (process.env.APNS_KEY_PATH && process.env.APNS_KEY_ID && process.env.APNS_TEAM_ID) {
+  try {
+    apnProvider = new apn.Provider({
+      token: {
+        key: process.env.APNS_KEY_PATH,
+        keyId: process.env.APNS_KEY_ID,
+        teamId: process.env.APNS_TEAM_ID,
+      },
+      production: process.env.NODE_ENV === 'production'
+    });
+  } catch (error) {
+    logger.warn('APNS not initialized:', error.message);
+  }
 }
 
 async function queueNotifications(article, matches) {

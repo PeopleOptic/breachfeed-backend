@@ -18,6 +18,7 @@ model User {
   updatedAt       DateTime       @updatedAt
   notifications   Notification[]
   subscriptions   Subscription[]
+  articleVotes    ArticleVote[]
 }
 
 model RssFeed {
@@ -54,6 +55,8 @@ model Article {
   updatedAt                DateTime          @updatedAt
   alertType                AlertType?        @default(SECURITY_MENTION)
   classificationConfidence Float?            @default(0.5)
+  voteCount                Int               @default(0)
+  slug                     String?           @unique
   feed                     RssFeed           @relation(fields: [feedId], references: [id])
   incidents                Incident[]
   matchedAgencies          MatchedAgency[]
@@ -61,12 +64,15 @@ model Article {
   matchedKeywords          MatchedKeyword[]
   matchedLocations         MatchedLocation[]
   notifications            Notification[]
+  votes                    ArticleVote[]
 
   @@index([publishedAt])
   @@index([feedId])
   @@index([severity])
   @@index([location])
   @@index([alertType])
+  @@index([voteCount])
+  @@index([slug])
 }
 
 model Company {
@@ -307,4 +313,23 @@ enum AlertType {
   CONFIRMED_BREACH
   SECURITY_INCIDENT
   SECURITY_MENTION
+}
+
+model ArticleVote {
+  id        String   @id @default(cuid())
+  userId    String
+  articleId String
+  voteType  VoteType
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+  article   Article  @relation(fields: [articleId], references: [id])
+
+  @@unique([userId, articleId])
+  @@index([articleId])
+  @@index([userId])
+}
+
+enum VoteType {
+  UP
+  DOWN
 }

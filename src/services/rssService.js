@@ -14,6 +14,15 @@ const parser = new Parser({
 
 const prisma = new PrismaClient();
 
+// Utility function to generate slug from title
+function generateSlug(title) {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .substring(0, 100);
+}
+
 async function fetchAndProcessFeed(feed) {
   try {
     logger.info(`Fetching RSS feed: ${feed.name} (${feed.url})`);
@@ -111,12 +120,16 @@ async function fetchAndProcessFeed(feed) {
         // Log article data for debugging
         logger.info(`Creating article: ${item.title} from ${feed.name}${imageUrl ? ` with image: ${imageUrl}` : ''} with ${categories.length} tags`);
         
+        // Generate slug from title
+        const slug = generateSlug(item.title || 'Untitled');
+        
         // Create new article
         const article = await prisma.article.create({
           data: {
             feedId: feed.id,
             title: item.title || 'Untitled',
             link: item.link,
+            slug,
             description: item.contentSnippet || item.summary || '',
             content: item.content || item['content:encoded'] || '',
             author: item.creator || item.author || null,

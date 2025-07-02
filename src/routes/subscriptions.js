@@ -9,11 +9,23 @@ const prisma = new PrismaClient();
 
 // Validation schemas
 const createSubscriptionSchema = Joi.object({
-  type: Joi.string().valid('COMPANY', 'KEYWORD').required(),
+  type: Joi.string().valid('COMPANY', 'KEYWORD', 'AGENCY', 'LOCATION').required(),
   targetId: Joi.string().required(),
   emailEnabled: Joi.boolean().default(true),
   smsEnabled: Joi.boolean().default(false),
-  pushEnabled: Joi.boolean().default(false)
+  pushEnabled: Joi.boolean().default(false),
+  severityFilter: Joi.string().valid('LOW', 'MEDIUM', 'HIGH', 'CRITICAL').optional(),
+  locationFilter: Joi.string().optional(),
+  keywordFilters: Joi.array().items(Joi.string()).optional(),
+  alertTypeFilter: Joi.array().items(
+    Joi.string().valid('CONFIRMED_BREACH', 'SECURITY_INCIDENT', 'SECURITY_MENTION')
+  ).optional()
+});
+
+const quickSubscribeSchema = Joi.object({
+  entityType: Joi.string().valid('COMPANY', 'KEYWORD', 'AGENCY', 'LOCATION').required(),
+  entityId: Joi.string().required(),
+  entityName: Joi.string().required()
 });
 
 const updateSubscriptionSchema = Joi.object({
@@ -93,6 +105,77 @@ router.post('/', authenticateJWT, validateRequest(createSubscriptionSchema), asy
     });
     
     res.status(201).json(subscription);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Quick subscribe endpoint for article detail pages
+router.post('/quick', authenticateApiKey, validateRequest(quickSubscribeSchema), async (req, res, next) => {
+  try {
+    const { entityType, entityId, entityName } = req.body;
+    const userId = req.headers['x-user-id'];
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'User ID required' });
+    }
+    
+    // Check if user exists
+    const user = await prisma.user.findUnique({
+      where: { id: userId }
+    });
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Check if subscription already exists
+    const existingSubscription = await prisma.subscription.findUnique({
+      where: {
+        userId_type_targetId: {
+          userId,
+          type: entityType,
+          targetId: entityId
+        }
+      }
+    });
+    
+    if (existingSubscription) {
+      if (!existingSubscription.isActive) {
+        // Reactivate existing subscription
+        const updated = await prisma.subscription.update({
+          where: { id: existingSubscription.id },
+          data: { isActive: true }
+        });
+        return res.json({ message: 'Subscription reactivated', subscription: updated });
+      }
+      return res.status(409).json({ error: 'Subscription already exists' });
+    }
+    
+    // Create subscription with smart defaults
+    const subscription = await prisma.subscription.create({
+      data: {
+        userId,
+        type: entityType,
+        targetId: entityId,
+        emailEnabled: true,
+        smsEnabled: false,
+        pushEnabled: false,
+        isActive: true,
+        alertTypeFilter: ['CONFIRMED_BREACH', 'SECURITY_INCIDENT', 'SECURITY_MENTION']
+      },
+      include: {
+        company: entityType === 'COMPANY',
+        keyword: entityType === 'KEYWORD',
+        agency: entityType === 'AGENCY',
+        location: entityType === 'LOCATION'
+      }
+    });
+    
+    res.status(201).json({
+      message: `Subscribed to ${entityName}`,
+      subscription
+    });
   } catch (error) {
     next(error);
   }

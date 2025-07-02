@@ -7,6 +7,15 @@ const { validateRequest } = require('../middleware/validation');
 const router = express.Router();
 const prisma = new PrismaClient();
 
+// Utility function to generate slug from title
+function generateSlug(title) {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .substring(0, 100);
+}
+
 // Search/filter schema
 const searchSchema = Joi.object({
   q: Joi.string().optional(),
@@ -62,6 +71,7 @@ router.get('/search', authenticateApiKey, async (req, res, next) => {
           title: true,
           description: true,
           link: true,
+          slug: true,
           publishedAt: true,
           severity: true,
           imageUrl: true,
@@ -85,6 +95,86 @@ router.get('/search', authenticateApiKey, async (req, res, next) => {
         orderBy: { [sortBy]: sortOrder }
       }),
       prisma.article.count({ where })
+    ]);
+    
+    res.json({
+      articles,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get popular articles (must be before /:id route)
+router.get('/popular', authenticateApiKey, async (req, res, next) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const days = parseInt(req.query.days) || 7;
+    
+    // Calculate date range
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    
+    const [articles, total] = await Promise.all([
+      prisma.article.findMany({
+        where: {
+          publishedAt: {
+            gte: startDate
+          },
+          voteCount: {
+            gt: 0
+          }
+        },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          link: true,
+          slug: true,
+          publishedAt: true,
+          severity: true,
+          imageUrl: true,
+          categories: true,
+          summary: true,
+          alertType: true,
+          voteCount: true,
+          feed: {
+            select: { id: true, name: true }
+          },
+          matchedCompanies: {
+            include: { company: true }
+          },
+          matchedAgencies: {
+            include: { agency: true }
+          },
+          matchedLocations: {
+            include: { location: true }
+          }
+        },
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: [
+          { voteCount: 'desc' },
+          { publishedAt: 'desc' }
+        ]
+      }),
+      prisma.article.count({
+        where: {
+          publishedAt: {
+            gte: startDate
+          },
+          voteCount: {
+            gt: 0
+          }
+        }
+      })
     ]);
     
     res.json({
@@ -146,6 +236,7 @@ router.get('/', authenticateApiKey, async (req, res, next) => {
           title: true,
           description: true,
           link: true,
+          slug: true,
           publishedAt: true,
           severity: true,
           imageUrl: true,
@@ -192,18 +283,266 @@ router.get('/', authenticateApiKey, async (req, res, next) => {
   }
 });
 
-// Get single article
-router.get('/:id', authenticateApiKey, async (req, res, next) => {
+// Vote on an article
+router.post('/:id/vote', authenticateApiKey, async (req, res, next) => {
   try {
+    const { id: articleId } = req.params;
+    const { voteType } = req.body;
+    const userId = req.headers['x-user-id'];
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'User ID required for voting' });
+    }
+    
+    if (!['UP', 'DOWN'].includes(voteType)) {
+      return res.status(400).json({ error: 'Invalid vote type. Must be UP or DOWN' });
+    }
+    
+    // Check if article exists
     const article = await prisma.article.findUnique({
-      where: { id: req.params.id },
+      where: { id: articleId }
+    });
+    
+    if (!article) {
+      return res.status(404).json({ error: 'Article not found' });
+    }
+    
+    // Check for existing vote
+    const existingVote = await prisma.articleVote.findUnique({
+      where: {
+        userId_articleId: {
+          userId,
+          articleId
+        }
+      }
+    });
+    
+    let voteChange = 0;
+    
+    if (existingVote) {
+      if (existingVote.voteType === voteType) {
+        // Same vote type, no change needed
+        return res.json({ message: 'Vote unchanged', voteType });
+      }
+      
+      // Update vote type
+      await prisma.articleVote.update({
+        where: { id: existingVote.id },
+        data: { voteType }
+      });
+      
+      // Calculate vote change
+      voteChange = voteType === 'UP' ? 2 : -2; // Changing from DOWN to UP or vice versa
+    } else {
+      // Create new vote
+      await prisma.articleVote.create({
+        data: {
+          userId,
+          articleId,
+          voteType
+        }
+      });
+      
+      voteChange = voteType === 'UP' ? 1 : -1;
+    }
+    
+    // Update article vote count
+    await prisma.article.update({
+      where: { id: articleId },
+      data: {
+        voteCount: {
+          increment: voteChange
+        }
+      }
+    });
+    
+    res.json({ message: 'Vote recorded', voteType });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Remove vote from an article
+router.delete('/:id/vote', authenticateApiKey, async (req, res, next) => {
+  try {
+    const { id: articleId } = req.params;
+    const userId = req.headers['x-user-id'];
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'User ID required' });
+    }
+    
+    // Find and delete vote
+    const existingVote = await prisma.articleVote.findUnique({
+      where: {
+        userId_articleId: {
+          userId,
+          articleId
+        }
+      }
+    });
+    
+    if (!existingVote) {
+      return res.status(404).json({ error: 'Vote not found' });
+    }
+    
+    await prisma.articleVote.delete({
+      where: { id: existingVote.id }
+    });
+    
+    // Update article vote count
+    const voteChange = existingVote.voteType === 'UP' ? -1 : 1;
+    await prisma.article.update({
+      where: { id: articleId },
+      data: {
+        voteCount: {
+          increment: voteChange
+        }
+      }
+    });
+    
+    res.json({ message: 'Vote removed' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Delete an article (admin functionality) - MUST BE BEFORE /:identifier route
+router.delete('/:id', authenticateApiKey, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    
+    // Check if article exists
+    const existingArticle = await prisma.article.findUnique({
+      where: { id },
+      select: { id: true, title: true }
+    });
+    
+    if (!existingArticle) {
+      return res.status(404).json({ error: 'Article not found' });
+    }
+    
+    // Delete the article (this will cascade delete related records)
+    await prisma.article.delete({
+      where: { id }
+    });
+    
+    // Log the deletion for audit purposes
+    console.log(`Article ${id} deleted:`, {
+      title: existingArticle.title,
+      timestamp: new Date().toISOString()
+    });
+    
+    res.json({ 
+      message: 'Article deleted successfully',
+      deletedArticle: existingArticle
+    });
+  } catch (error) {
+    if (error.code === 'P2025') {
+      return res.status(404).json({ error: 'Article not found' });
+    }
+    next(error);
+  }
+});
+
+// Update article (admin functionality) - MUST BE BEFORE /:identifier route  
+router.patch('/:id', authenticateApiKey, validateRequest(updateArticleSchema), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+    
+    // Check if article exists
+    const existingArticle = await prisma.article.findUnique({
+      where: { id },
+      select: { id: true, title: true }
+    });
+    
+    if (!existingArticle) {
+      return res.status(404).json({ error: 'Article not found' });
+    }
+    
+    // Update article with new classification data
+    const updatedArticle = await prisma.article.update({
+      where: { id },
+      data: updateData,
+      include: {
+        feed: {
+          select: {
+            id: true,
+            name: true,
+            url: true
+          }
+        },
+        matchedKeywords: {
+          include: { keyword: true }
+        },
+        matchedCompanies: {
+          include: { company: true }
+        },
+        matchedAgencies: {
+          include: { agency: true }
+        },
+        matchedLocations: {
+          include: { location: true }
+        }
+      }
+    });
+    
+    // Log the update for audit purposes
+    console.log(`Article ${id} updated:`, {
+      title: existingArticle.title,
+      changes: updateData,
+      timestamp: new Date().toISOString()
+    });
+    
+    res.json(updatedArticle);
+  } catch (error) {
+    if (error.code === 'P2025') {
+      return res.status(404).json({ error: 'Article not found' });
+    }
+    next(error);
+  }
+});
+
+// Get single article with full details
+router.get('/:identifier', authenticateApiKey, async (req, res, next) => {
+  try {
+    const { includeFullContent } = req.query;
+    const userId = req.headers['x-user-id']; // Optional user ID for vote status
+    const { identifier } = req.params;
+    
+    // Check if identifier is a slug or ID
+    const whereClause = identifier.match(/^[a-z0-9-]+$/) && !identifier.match(/^[a-z0-9]{25}$/) 
+      ? { slug: identifier } 
+      : { id: identifier };
+    
+    const article = await prisma.article.findFirst({
+      where: whereClause,
       include: {
         feed: true,
         matchedKeywords: {
           include: {
             keyword: true
           }
-        }
+        },
+        matchedCompanies: {
+          include: {
+            company: true
+          }
+        },
+        matchedAgencies: {
+          include: {
+            agency: true
+          }
+        },
+        matchedLocations: {
+          include: {
+            location: true
+          }
+        },
+        votes: userId ? {
+          where: { userId }
+        } : false
       }
     });
     
@@ -211,7 +550,46 @@ router.get('/:id', authenticateApiKey, async (req, res, next) => {
       return res.status(404).json({ error: 'Article not found' });
     }
     
-    res.json(article);
+    // Generate slug if not exists
+    if (!article.slug) {
+      const slug = generateSlug(article.title);
+      await prisma.article.update({
+        where: { id: article.id },
+        data: { slug }
+      });
+      article.slug = slug;
+    }
+    
+    // Calculate vote summary
+    const voteStats = await prisma.articleVote.groupBy({
+      by: ['voteType'],
+      where: { articleId: article.id },
+      _count: true
+    });
+    
+    const upvotes = voteStats.find(v => v.voteType === 'UP')?._count || 0;
+    const downvotes = voteStats.find(v => v.voteType === 'DOWN')?._count || 0;
+    
+    // Prepare response
+    const response = {
+      ...article,
+      voteStats: {
+        upvotes,
+        downvotes,
+        score: upvotes - downvotes,
+        userVote: article.votes && article.votes[0] ? article.votes[0].voteType : null
+      }
+    };
+    
+    // Remove full content if not requested
+    if (!includeFullContent) {
+      delete response.content;
+    }
+    
+    // Remove votes array from response
+    delete response.votes;
+    
+    res.json(response);
   } catch (error) {
     next(error);
   }
@@ -493,63 +871,65 @@ const updateArticleSchema = Joi.object({
   categories: Joi.array().items(Joi.string()).optional()
 });
 
-// Update article classification (admin functionality)
-router.patch('/:id', authenticateApiKey, validateRequest(updateArticleSchema), async (req, res, next) => {
+// Get articles by tag
+router.get('/by-tag/:tag', authenticateApiKey, async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const updateData = req.body;
+    const { tag } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
     
-    // Check if article exists
-    const existingArticle = await prisma.article.findUnique({
-      where: { id },
-      select: { id: true, title: true }
-    });
+    // Decode the tag from URL
+    const decodedTag = decodeURIComponent(tag);
     
-    if (!existingArticle) {
-      return res.status(404).json({ error: 'Article not found' });
-    }
-    
-    // Update article with new classification data
-    const updatedArticle = await prisma.article.update({
-      where: { id },
-      data: updateData,
-      include: {
-        feed: {
-          select: {
-            id: true,
-            name: true,
-            url: true
+    const [articles, total] = await Promise.all([
+      prisma.article.findMany({
+        where: {
+          categories: {
+            has: decodedTag
           }
         },
-        matchedKeywords: {
-          include: { keyword: true }
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          link: true,
+          slug: true,
+          publishedAt: true,
+          severity: true,
+          imageUrl: true,
+          categories: true,
+          alertType: true,
+          feed: {
+            select: { id: true, name: true }
+          }
         },
-        matchedCompanies: {
-          include: { company: true }
-        },
-        matchedAgencies: {
-          include: { agency: true }
-        },
-        matchedLocations: {
-          include: { location: true }
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { publishedAt: 'desc' }
+      }),
+      prisma.article.count({
+        where: {
+          categories: {
+            has: decodedTag
+          }
         }
+      })
+    ]);
+    
+    res.json({
+      articles,
+      tag: decodedTag,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
       }
     });
-    
-    // Log the update for audit purposes
-    console.log(`Article ${id} updated:`, {
-      title: existingArticle.title,
-      changes: updateData,
-      timestamp: new Date().toISOString()
-    });
-    
-    res.json(updatedArticle);
   } catch (error) {
-    if (error.code === 'P2025') {
-      return res.status(404).json({ error: 'Article not found' });
-    }
     next(error);
   }
 });
+
 
 module.exports = router;
