@@ -1,6 +1,7 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const Joi = require('joi');
+const jwt = require('jsonwebtoken');
 const { authenticateJWT, authenticateApiKey } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/validation');
 
@@ -114,19 +115,47 @@ router.post('/', authenticateJWT, validateRequest(createSubscriptionSchema), asy
 router.post('/quick', authenticateApiKey, validateRequest(quickSubscribeSchema), async (req, res, next) => {
   try {
     const { entityType, entityId, entityName } = req.body;
-    const userId = req.headers['x-user-id'];
+    const userIdHeader = req.headers['x-user-id'];
+    const userEmail = req.headers['x-user-email'];
     
-    if (!userId) {
-      return res.status(401).json({ error: 'User ID required' });
+    // Try to find user by WordPress user ID first (for backward compatibility)
+    let user = null;
+    let userId = null;
+    
+    if (userIdHeader) {
+      // First try as a backend user ID
+      user = await prisma.user.findUnique({
+        where: { id: userIdHeader }
+      });
+      
+      if (user) {
+        userId = user.id;
+      }
     }
     
-    // Check if user exists
-    const user = await prisma.user.findUnique({
-      where: { id: userId }
-    });
+    // If not found by ID, try by email
+    if (!user && userEmail) {
+      user = await prisma.user.findUnique({
+        where: { email: userEmail }
+      });
+      
+      if (user) {
+        userId = user.id;
+      } else {
+        // Auto-create user if they don't exist
+        const newUser = await prisma.user.create({
+          data: {
+            email: userEmail,
+            name: req.headers['x-user-name'] || userEmail.split('@')[0]
+          }
+        });
+        user = newUser;
+        userId = newUser.id;
+      }
+    }
     
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+    if (!user || !userId) {
+      return res.status(401).json({ error: 'User authentication required. Please provide user email.' });
     }
     
     // Check if subscription already exists
@@ -211,14 +240,45 @@ router.patch('/:id', authenticateJWT, validateRequest(updateSubscriptionSchema),
   }
 });
 
-// Delete subscription
-router.delete('/:id', authenticateJWT, async (req, res, next) => {
+// Delete subscription - supports both JWT and API key authentication
+router.delete('/:id', async (req, res, next) => {
   try {
+    let userId = null;
+    
+    // Check if JWT authentication is present
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+      try {
+        const token = req.headers.authorization.substring(7);
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        userId = decoded.userId;
+      } catch (err) {
+        // JWT invalid, try API key method
+      }
+    }
+    
+    // If no JWT, check for API key + email authentication
+    if (!userId && req.headers['x-api-key'] && req.headers['x-user-email']) {
+      // Verify API key
+      if (req.headers['x-api-key'] === process.env.WORDPRESS_API_KEY) {
+        const user = await prisma.user.findUnique({
+          where: { email: req.headers['x-user-email'] }
+        });
+        
+        if (user) {
+          userId = user.id;
+        }
+      }
+    }
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
     // Verify ownership
     const existing = await prisma.subscription.findFirst({
       where: {
         id: req.params.id,
-        userId: req.userId
+        userId: userId
       }
     });
     
