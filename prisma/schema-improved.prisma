@@ -1,0 +1,43 @@
+// This is the improved schema with separate fields for each entity type
+
+model Subscription {
+  id              String           @id @default(cuid())
+  userId          String
+  type            SubscriptionType
+  
+  // Separate fields for each entity type - only one should be set
+  companyId       String?
+  agencyId        String?
+  locationId      String?
+  keywordId       String?
+  
+  emailEnabled    Boolean          @default(true)
+  smsEnabled      Boolean          @default(false)
+  pushEnabled     Boolean          @default(false)
+  isActive        Boolean          @default(true)
+  severityFilter  SeverityLevel?
+  locationFilter  String?
+  keywordFilters  String[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  alertTypeFilter AlertType[]      @default([CONFIRMED_BREACH, SECURITY_INCIDENT, SECURITY_MENTION])
+  
+  // Relations
+  user            User             @relation(fields: [userId], references: [id])
+  company         Company?         @relation(fields: [companyId], references: [id])
+  agency          Agency?          @relation(fields: [agencyId], references: [id])
+  location        Location?        @relation(fields: [locationId], references: [id])
+  keyword         Keyword?         @relation(fields: [keywordId], references: [id])
+  
+  // Ensure only one entity type is set
+  @@unique([userId, type, companyId])
+  @@unique([userId, type, agencyId])
+  @@unique([userId, type, locationId])
+  @@unique([userId, type, keywordId])
+  
+  @@index([userId])
+  @@index([companyId])
+  @@index([agencyId])
+  @@index([locationId])
+  @@index([keywordId])
+}

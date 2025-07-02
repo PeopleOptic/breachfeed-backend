@@ -362,17 +362,36 @@ router.post('/quick', authenticateApiKey, validateRequest(quickSubscribeSchema),
     // Create subscription with smart defaults
     let subscription;
     try {
+      // Prepare subscription data with both old and new fields for compatibility
+      const subscriptionData = {
+        userId,
+        type: entityType,
+        targetId: entityId, // Keep for backward compatibility
+        emailEnabled: true,
+        smsEnabled: false,
+        pushEnabled: false,
+        isActive: true,
+        alertTypeFilter: ['CONFIRMED_BREACH', 'SECURITY_INCIDENT', 'SECURITY_MENTION']
+      };
+      
+      // Also set the specific ID field for the new schema
+      switch (entityType) {
+        case 'COMPANY':
+          subscriptionData.companyId = entityId;
+          break;
+        case 'AGENCY':
+          subscriptionData.agencyId = entityId;
+          break;
+        case 'LOCATION':
+          subscriptionData.locationId = entityId;
+          break;
+        case 'KEYWORD':
+          subscriptionData.keywordId = entityId;
+          break;
+      }
+      
       subscription = await prisma.subscription.create({
-        data: {
-          userId,
-          type: entityType,
-          targetId: entityId,
-          emailEnabled: true,
-          smsEnabled: false,
-          pushEnabled: false,
-          isActive: true,
-          alertTypeFilter: ['CONFIRMED_BREACH', 'SECURITY_INCIDENT', 'SECURITY_MENTION']
-        },
+        data: subscriptionData,
         include: {
           company: entityType === 'COMPANY',
           keyword: entityType === 'KEYWORD',

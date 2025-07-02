@@ -109,7 +109,14 @@ model Subscription {
   id              String           @id @default(cuid())
   userId          String
   type            SubscriptionType
-  targetId        String?
+  targetId        String?          @deprecated("Use specific ID fields instead")
+  
+  // Separate fields for each entity type
+  companyId       String?
+  agencyId        String?
+  locationId      String?
+  keywordId       String?
+  
   emailEnabled    Boolean          @default(true)
   smsEnabled      Boolean          @default(false)
   pushEnabled     Boolean          @default(false)
@@ -120,15 +127,25 @@ model Subscription {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   alertTypeFilter AlertType[]      @default([CONFIRMED_BREACH, SECURITY_INCIDENT, SECURITY_MENTION])
-  agency          Agency?          @relation(fields: [targetId], references: [id], map: "Subscription_agency_fkey")
-  company         Company?         @relation(fields: [targetId], references: [id], map: "Subscription_company_fkey")
-  keyword         Keyword?         @relation(fields: [targetId], references: [id], map: "Subscription_keyword_fkey")
-  location        Location?        @relation(fields: [targetId], references: [id], map: "Subscription_location_fkey")
+  
+  // Relations
   user            User             @relation(fields: [userId], references: [id])
+  company         Company?         @relation(fields: [companyId], references: [id])
+  agency          Agency?          @relation(fields: [agencyId], references: [id])
+  location        Location?        @relation(fields: [locationId], references: [id])
+  keyword         Keyword?         @relation(fields: [keywordId], references: [id])
 
-  @@unique([userId, type, targetId])
+  @@unique([userId, type, companyId])
+  @@unique([userId, type, agencyId])
+  @@unique([userId, type, locationId])
+  @@unique([userId, type, keywordId])
+  @@unique([userId, type, targetId]) // Keep for backward compatibility
   @@index([userId])
   @@index([targetId])
+  @@index([companyId])
+  @@index([agencyId])
+  @@index([locationId])
+  @@index([keywordId])
 }
 
 model MatchedKeyword {
