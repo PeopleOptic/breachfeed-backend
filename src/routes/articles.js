@@ -29,6 +29,14 @@ const searchSchema = Joi.object({
   sortOrder: Joi.string().valid('asc', 'desc').default('desc')
 });
 
+// Update article schema
+const updateArticleSchema = Joi.object({
+  alertType: Joi.string().valid('CONFIRMED_BREACH', 'SECURITY_INCIDENT', 'SECURITY_MENTION').optional(),
+  severity: Joi.string().valid('LOW', 'MEDIUM', 'HIGH', 'CRITICAL').optional(),
+  classificationConfidence: Joi.number().min(0).max(1).optional(),
+  categories: Joi.array().items(Joi.string()).optional()
+});
+
 // Search articles with filters
 router.get('/search', authenticateApiKey, async (req, res, next) => {
   try {
@@ -861,14 +869,6 @@ router.get('/user/feed', authenticateJWT, async (req, res, next) => {
   } catch (error) {
     next(error);
   }
-});
-
-// Update article schema
-const updateArticleSchema = Joi.object({
-  alertType: Joi.string().valid('CONFIRMED_BREACH', 'SECURITY_INCIDENT', 'SECURITY_MENTION').optional(),
-  severity: Joi.string().valid('LOW', 'MEDIUM', 'HIGH', 'CRITICAL').optional(),
-  classificationConfidence: Joi.number().min(0).max(1).optional(),
-  categories: Joi.array().items(Joi.string()).optional()
 });
 
 // Get articles by tag
