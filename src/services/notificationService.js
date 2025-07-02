@@ -114,7 +114,7 @@ async function queueNotifications(article, matches) {
       const alertType = article.alertType || 'SECURITY_MENTION';
       const priority = getNotificationPriority(alertType);
       
-      if (subscription.emailEnabled) {
+      if (subscription.emailEnabled && notificationQueue) {
         await notificationQueue.add('email', {
           userId: subscription.userId,
           articleId: article.id,
@@ -127,7 +127,7 @@ async function queueNotifications(article, matches) {
         });
       }
       
-      if (subscription.smsEnabled && subscription.user.phoneNumber) {
+      if (subscription.smsEnabled && subscription.user.phoneNumber && notificationQueue) {
         await notificationQueue.add('sms', {
           userId: subscription.userId,
           articleId: article.id,
@@ -140,7 +140,7 @@ async function queueNotifications(article, matches) {
         });
       }
       
-      if (subscription.pushEnabled && subscription.user.apnsDeviceToken) {
+      if (subscription.pushEnabled && subscription.user.apnsDeviceToken && notificationQueue) {
         await notificationQueue.add('push', {
           userId: subscription.userId,
           articleId: article.id,

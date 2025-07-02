@@ -68,8 +68,12 @@ async function startServer() {
     await prisma.$connect();
     logger.info('Database connected');
 
-    await initializeQueue();
-    logger.info('Job queue initialized');
+    try {
+      await initializeQueue();
+      logger.info('Job queue initialized');
+    } catch (queueError) {
+      logger.warn('Job queue initialization failed, continuing without queue:', queueError.message);
+    }
 
     await startCronJobs();
     logger.info('Cron jobs started');
