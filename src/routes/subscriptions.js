@@ -178,7 +178,10 @@ router.post('/quick', authenticateApiKey, validateRequest(quickSubscribeSchema),
         });
         return res.json({ message: 'Subscription reactivated', subscription: updated });
       }
-      return res.status(409).json({ error: 'Subscription already exists' });
+      return res.status(409).json({ 
+        error: 'Subscription already exists',
+        subscriptionId: existingSubscription.id 
+      });
     }
     
     // Create subscription with smart defaults
@@ -206,6 +209,13 @@ router.post('/quick', authenticateApiKey, validateRequest(quickSubscribeSchema),
       subscription
     });
   } catch (error) {
+    console.error('Quick subscribe error:', error);
+    if (error.code === 'P2002') {
+      return res.status(409).json({ 
+        error: 'Subscription already exists',
+        subscriptionId: existingSubscription?.id 
+      });
+    }
     next(error);
   }
 });
