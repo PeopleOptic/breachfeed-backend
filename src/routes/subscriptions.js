@@ -158,6 +158,30 @@ router.post('/quick', authenticateApiKey, validateRequest(quickSubscribeSchema),
       return res.status(401).json({ error: 'User authentication required. Please provide user email.' });
     }
     
+    // Verify the entity exists before creating subscription
+    let entityExists = false;
+    try {
+      if (entityType === 'COMPANY') {
+        const company = await prisma.company.findUnique({ where: { id: entityId } });
+        entityExists = !!company;
+      } else if (entityType === 'AGENCY') {
+        const agency = await prisma.agency.findUnique({ where: { id: entityId } });
+        entityExists = !!agency;
+      } else if (entityType === 'LOCATION') {
+        const location = await prisma.location.findUnique({ where: { id: entityId } });
+        entityExists = !!location;
+      } else if (entityType === 'KEYWORD') {
+        const keyword = await prisma.keyword.findUnique({ where: { id: entityId } });
+        entityExists = !!keyword;
+      }
+    } catch (err) {
+      console.error('Error checking entity existence:', err);
+    }
+
+    if (!entityExists) {
+      return res.status(404).json({ error: `${entityType} not found: ${entityName}` });
+    }
+
     // Check if subscription already exists
     const existingSubscription = await prisma.subscription.findUnique({
       where: {
