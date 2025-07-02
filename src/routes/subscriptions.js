@@ -158,28 +158,72 @@ router.post('/quick', authenticateApiKey, validateRequest(quickSubscribeSchema),
       return res.status(401).json({ error: 'User authentication required. Please provide user email.' });
     }
     
-    // Verify the entity exists before creating subscription
-    let entityExists = false;
+    // Auto-create entity if it doesn't exist
     try {
       if (entityType === 'COMPANY') {
         const company = await prisma.company.findUnique({ where: { id: entityId } });
-        entityExists = !!company;
+        if (!company) {
+          // Auto-create company
+          await prisma.company.create({
+            data: {
+              id: entityId,
+              name: entityName,
+              isActive: true
+            }
+          });
+          console.log(`Auto-created company: ${entityName} (${entityId})`);
+        }
       } else if (entityType === 'AGENCY') {
         const agency = await prisma.agency.findUnique({ where: { id: entityId } });
-        entityExists = !!agency;
+        if (!agency) {
+          // Auto-create agency
+          await prisma.agency.create({
+            data: {
+              id: entityId,
+              name: entityName,
+              isActive: true
+            }
+          });
+          console.log(`Auto-created agency: ${entityName} (${entityId})`);
+        }
       } else if (entityType === 'LOCATION') {
         const location = await prisma.location.findUnique({ where: { id: entityId } });
-        entityExists = !!location;
+        if (!location) {
+          // Auto-create location - extract country from name if possible
+          const country = entityName.includes(',') ? entityName.split(',').pop().trim() : 'Unknown';
+          await prisma.location.create({
+            data: {
+              id: entityId,
+              name: entityName,
+              country: country,
+              isActive: true
+            }
+          });
+          console.log(`Auto-created location: ${entityName} (${entityId})`);
+        }
       } else if (entityType === 'KEYWORD') {
         const keyword = await prisma.keyword.findUnique({ where: { id: entityId } });
-        entityExists = !!keyword;
+        if (!keyword) {
+          // Auto-create keyword
+          await prisma.keyword.create({
+            data: {
+              id: entityId,
+              term: entityName,
+              isActive: true
+            }
+          });
+          console.log(`Auto-created keyword: ${entityName} (${entityId})`);
+        }
       }
     } catch (err) {
-      console.error('Error checking entity existence:', err);
-    }
-
-    if (!entityExists) {
-      return res.status(404).json({ error: `${entityType} not found: ${entityName}` });
+      console.error('Error creating entity:', err);
+      // If it's a unique constraint error, the entity was created by another request
+      if (err.code !== 'P2002') {
+        return res.status(400).json({ 
+          error: `Failed to create ${entityType}: ${entityName}`,
+          details: err.message 
+        });
+      }
     }
 
     // Check if subscription already exists
