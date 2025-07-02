@@ -109,7 +109,7 @@ model Subscription {
   id              String           @id @default(cuid())
   userId          String
   type            SubscriptionType
-  targetId        String?          @deprecated("Use specific ID fields instead")
+  targetId        String?          // @deprecated - Use specific ID fields instead
   
   // Separate fields for each entity type
   companyId       String?
