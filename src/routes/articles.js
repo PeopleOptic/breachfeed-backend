@@ -158,14 +158,15 @@ router.get('/popular', authenticateApiKey, async (req, res, next) => {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
     
+    // For now, just get recent high-severity articles as "popular"
     const [articles, total] = await Promise.all([
       prisma.article.findMany({
         where: {
           publishedAt: {
             gte: startDate
           },
-          voteCount: {
-            gt: 0
+          severity: {
+            in: ['HIGH', 'CRITICAL']
           }
         },
         select: {
@@ -179,7 +180,6 @@ router.get('/popular', authenticateApiKey, async (req, res, next) => {
           categories: true,
           summary: true,
           alertType: true,
-          voteCount: true,
           feed: {
             select: { id: true, name: true }
           },
@@ -196,7 +196,6 @@ router.get('/popular', authenticateApiKey, async (req, res, next) => {
         skip: (page - 1) * limit,
         take: limit,
         orderBy: [
-          { voteCount: 'desc' },
           { publishedAt: 'desc' }
         ]
       }),
@@ -205,9 +204,7 @@ router.get('/popular', authenticateApiKey, async (req, res, next) => {
           publishedAt: {
             gte: startDate
           },
-          voteCount: {
-            gt: 0
-          }
+          // Skip voteCount filter for now
         }
       })
     ]);
@@ -405,9 +402,7 @@ router.post('/:id/vote', authenticateApiKey, async (req, res, next) => {
     await prisma.article.update({
       where: { id: articleId },
       data: {
-        voteCount: {
-          increment: voteChange
-        }
+        // Skip voteCount update for now
       }
     });
     
@@ -450,9 +445,7 @@ router.delete('/:id/vote', authenticateApiKey, async (req, res, next) => {
     await prisma.article.update({
       where: { id: articleId },
       data: {
-        voteCount: {
-          increment: voteChange
-        }
+        // Skip voteCount update for now
       }
     });
     
