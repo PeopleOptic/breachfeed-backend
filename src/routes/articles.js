@@ -11,56 +11,72 @@ const prisma = new PrismaClient();
 
 // Helper function to calculate vote stats for articles
 async function calculateVoteStats(articles, userId = null) {
-  if (!Array.isArray(articles)) {
-    articles = [articles];
-  }
-  
-  const articleIds = articles.map(a => a.id);
-  
-  // Get all votes for these articles
-  const votes = await prisma.articleVote.findMany({
-    where: { articleId: { in: articleIds } }
-  });
-  
-  // Get user's votes if userId provided
-  let userVotes = {};
-  if (userId) {
-    const userVoteRecords = await prisma.articleVote.findMany({
-      where: {
-        articleId: { in: articleIds },
-        userId: userId
-      }
-    });
-    userVotes = userVoteRecords.reduce((acc, vote) => {
-      acc[vote.articleId] = vote.voteType;
-      return acc;
-    }, {});
-  }
-  
-  // Calculate stats for each article
-  const statsMap = {};
-  articles.forEach(article => {
-    const articleVotes = votes.filter(v => v.articleId === article.id);
-    const upvotes = articleVotes.filter(v => v.voteType === 'UP').length;
-    const downvotes = articleVotes.filter(v => v.voteType === 'DOWN').length;
+  try {
+    if (!Array.isArray(articles)) {
+      articles = [articles];
+    }
     
-    statsMap[article.id] = {
-      upvotes,
-      downvotes,
-      score: upvotes - downvotes,
-      userVote: userVotes[article.id] || null
-    };
-  });
-  
-  // Return single article or array
-  if (articles.length === 1) {
-    return { ...articles[0], voteStats: statsMap[articles[0].id] };
+    const articleIds = articles.map(a => a.id);
+    
+    // Get all votes for these articles
+    const votes = await prisma.articleVote.findMany({
+      where: { articleId: { in: articleIds } }
+    });
+    
+    // Get user's votes if userId provided
+    let userVotes = {};
+    if (userId) {
+      const userVoteRecords = await prisma.articleVote.findMany({
+        where: {
+          articleId: { in: articleIds },
+          userId: userId
+        }
+      });
+      userVotes = userVoteRecords.reduce((acc, vote) => {
+        acc[vote.articleId] = vote.voteType;
+        return acc;
+      }, {});
+    }
+    
+    // Calculate stats for each article
+    const statsMap = {};
+    articles.forEach(article => {
+      const articleVotes = votes.filter(v => v.articleId === article.id);
+      const upvotes = articleVotes.filter(v => v.voteType === 'UP').length;
+      const downvotes = articleVotes.filter(v => v.voteType === 'DOWN').length;
+      
+      statsMap[article.id] = {
+        upvotes,
+        downvotes,
+        score: upvotes - downvotes,
+        userVote: userVotes[article.id] || null
+      };
+    });
+    
+    // Return single article or array
+    if (articles.length === 1) {
+      return { ...articles[0], voteStats: statsMap[articles[0].id] };
+    }
+    
+    return articles.map(article => ({
+      ...article,
+      voteStats: statsMap[article.id]
+    }));
+  } catch (error) {
+    console.error('Error calculating vote stats:', error);
+    // Return articles without vote stats if table doesn't exist
+    if (error.code === 'P2021') {
+      console.log('ArticleVote table does not exist, returning articles without vote stats');
+      if (!Array.isArray(articles)) {
+        return { ...articles, voteStats: { upvotes: 0, downvotes: 0, score: 0, userVote: null } };
+      }
+      return articles.map(article => ({
+        ...article,
+        voteStats: { upvotes: 0, downvotes: 0, score: 0, userVote: null }
+      }));
+    }
+    throw error;
   }
-  
-  return articles.map(article => ({
-    ...article,
-    voteStats: statsMap[article.id]
-  }));
 }
 
 // Utility function to generate slug from title
