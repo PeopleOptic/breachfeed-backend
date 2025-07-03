@@ -24,7 +24,7 @@ async function monitorConnections() {
       active_connections, 
       idle_connections, 
       idle_in_transaction,
-      longest_idle_time 
+      longest_idle_minutes 
     } = stats;
 
     // Log current stats
@@ -33,7 +33,7 @@ async function monitorConnections() {
       active: parseInt(active_connections),
       idle: parseInt(idle_connections),
       idleInTransaction: parseInt(idle_in_transaction),
-      longestIdleTime: longest_idle_time?.minutes || 0
+      longestIdleMinutes: parseFloat(longest_idle_minutes) || 0
     });
 
     const connectionLimit = parseInt(process.env.DATABASE_CONNECTION_LIMIT) || 20;
@@ -55,8 +55,8 @@ async function monitorConnections() {
     }
 
     // Alert on very long idle connections
-    if (longest_idle_time?.minutes > 5) {
-      logger.warn(`Found connections idle for ${longest_idle_time.minutes} minutes`);
+    if (parseFloat(longest_idle_minutes) > 5) {
+      logger.warn(`Found connections idle for ${parseFloat(longest_idle_minutes).toFixed(1)} minutes`);
     }
 
   } catch (error) {

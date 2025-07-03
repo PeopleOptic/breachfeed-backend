@@ -132,7 +132,7 @@ async function getPoolStats() {
         count(*) FILTER (WHERE state = 'active') as active_connections,
         count(*) FILTER (WHERE state = 'idle') as idle_connections,
         count(*) FILTER (WHERE state = 'idle in transaction') as idle_in_transaction,
-        max(now() - state_change) as longest_idle_time
+        EXTRACT(EPOCH FROM max(now() - state_change))/60 as longest_idle_minutes
       FROM pg_stat_activity 
       WHERE datname = current_database()
     `;
