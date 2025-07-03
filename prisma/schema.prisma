@@ -22,16 +22,17 @@ model User {
 }
 
 model RssFeed {
-  id            String    @id @default(cuid())
-  name          String
-  url           String    @unique
-  category      String?
-  isActive      Boolean   @default(true)
-  lastFetchedAt DateTime?
-  fetchInterval Int       @default(300)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  articles      Article[]
+  id                String             @id @default(cuid())
+  name              String
+  url               String             @unique
+  category          String?
+  isActive          Boolean            @default(true)
+  lastFetchedAt     DateTime?
+  fetchInterval     Int                @default(300)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  articles          Article[]
+  exclusionKeywords ExclusionKeyword[]
 }
 
 model Article {
@@ -349,4 +350,19 @@ model ArticleVote {
 enum VoteType {
   UP
   DOWN
+}
+
+
+model ExclusionKeyword {
+  id        String    @id @default(cuid())
+  keyword   String
+  feedId    String?   // Optional - if null, applies globally
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  feed      RssFeed?  @relation(fields: [feedId], references: [id], onDelete: Cascade)
+
+  @@index([keyword])
+  @@index([feedId])
+  @@index([isActive])
 }

@@ -27,14 +27,40 @@ async function fetchAndProcessFeed(feed) {
   try {
     logger.info(`Fetching RSS feed: ${feed.name} (${feed.url})`);
     
+    // Get exclusion keywords for this feed and global keywords
+    const exclusionKeywords = await prisma.exclusionKeyword.findMany({
+      where: {
+        isActive: true,
+        OR: [
+          { feedId: feed.id },
+          { feedId: null } // Global keywords
+        ]
+      },
+      select: { keyword: true }
+    });
+    
+    const excludeTerms = exclusionKeywords.map(k => k.keyword.toLowerCase());
+    logger.info(`Feed ${feed.name} has ${excludeTerms.length} active exclusion keywords`);
+    
     const parsedFeed = await parser.parseURL(feed.url);
     let newArticles = 0;
+    let filteredArticles = 0;
     
     for (const item of parsedFeed.items) {
       try {
         // Validate required fields
         if (!item.link) {
           logger.warn(`Skipping article without link from feed ${feed.name}`);
+          continue;
+        }
+        
+        // Check exclusion keywords
+        const articleText = `${item.title || ''} ${item.description || ''} ${item.content || ''}`.toLowerCase();
+        const excludedKeyword = excludeTerms.find(term => articleText.includes(term));
+        
+        if (excludedKeyword) {
+          logger.info(`Filtered article "${item.title}" from ${feed.name} - contains excluded keyword: "${excludedKeyword}"`);
+          filteredArticles++;
           continue;
         }
         
@@ -167,10 +193,10 @@ async function fetchAndProcessFeed(feed) {
       data: { lastFetchedAt: new Date() }
     });
     
-    logger.info(`Feed processing completed for ${feed.name}: ${newArticles} new articles created from ${parsedFeed.items.length} total items`);
+    logger.info(`Feed processing completed for ${feed.name}: ${newArticles} new articles created, ${filteredArticles} filtered by keywords, from ${parsedFeed.items.length} total items`);
     
     if (newArticles === 0 && parsedFeed.items.length > 0) {
-      logger.warn(`No new articles created despite ${parsedFeed.items.length} items in feed. All articles might already exist.`);
+      logger.warn(`No new articles created despite ${parsedFeed.items.length} items in feed. ${filteredArticles} filtered by keywords, others might already exist.`);
     }
     
   } catch (error) {

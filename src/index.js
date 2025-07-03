@@ -19,6 +19,7 @@ const webhookRoutes = require('./routes/webhooks');
 const companyRoutes = require('./routes/companies');
 const dashboardRoutes = require('./routes/dashboard');
 const testRoutes = require('./routes/test');
+const exclusionKeywordRoutes = require('./routes/exclusionKeywords');
 
 const app = express();
 const prisma = new PrismaClient();
@@ -57,6 +58,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/exclusion-keywords', exclusionKeywordRoutes);
 
 // Error handling
 app.use(errorHandler);
