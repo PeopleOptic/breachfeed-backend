@@ -1,10 +1,10 @@
-const { PrismaClient } = require('@prisma/client');
+const { getPrismaClient } = require('../utils/database');
 const sgMail = require('@sendgrid/mail');
 const apn = require('apn');
 const logger = require('../utils/logger');
 const { notificationQueue } = require('./queueService');
 
-const prisma = new PrismaClient();
+const prisma = getPrismaClient();
 
 // Initialize services conditionally
 let sgMailInitialized = false;

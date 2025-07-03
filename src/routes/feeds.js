@@ -1,5 +1,5 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
+const { getPrismaClient } = require('../utils/database');
 const Joi = require('joi');
 const { authenticateApiKey } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/validation');
@@ -7,7 +7,7 @@ const { fetchAndProcessFeed } = require('../services/rssService');
 const logger = require('../utils/logger');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const prisma = getPrismaClient();
 
 // Validation schemas
 const createFeedSchema = Joi.object({

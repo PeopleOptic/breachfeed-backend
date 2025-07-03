@@ -1,8 +1,8 @@
-const { PrismaClient } = require('@prisma/client');
+const { getPrismaClient } = require('../utils/database');
 const logger = require('../utils/logger');
 const Anthropic = require('@anthropic-ai/sdk');
 
-const prisma = new PrismaClient();
+const prisma = getPrismaClient();
 
 // Initialize Anthropic client if API key is available
 const anthropicClient = process.env.ANTHROPIC_API_KEY ? 

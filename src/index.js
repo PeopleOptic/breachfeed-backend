@@ -3,11 +3,12 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const { PrismaClient } = require('@prisma/client');
+const { getPrismaClient, checkDatabaseHealth, disconnectDatabase } = require('./utils/database');
 const logger = require('./utils/logger');
 const errorHandler = require('./middleware/errorHandler');
 const { startCronJobs } = require('./services/cronService');
 const { initializeQueue } = require('./services/queueService');
+const { startConnectionMonitoring } = require('./services/connectionMonitor');
 
 // Route imports
 const feedRoutes = require('./routes/feeds');
@@ -20,9 +21,10 @@ const companyRoutes = require('./routes/companies');
 const dashboardRoutes = require('./routes/dashboard');
 const testRoutes = require('./routes/test');
 const exclusionKeywordRoutes = require('./routes/exclusionKeywords');
+const adminRoutes = require('./routes/admin');
 
 const app = express();
-const prisma = new PrismaClient();
+const prisma = getPrismaClient();
 
 // Trust proxy for accurate client IP detection (required for Railway)
 app.set('trust proxy', 1);
@@ -43,9 +45,14 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Health check with database status
+app.get('/health', async (req, res) => {
+  const dbHealth = await checkDatabaseHealth();
+  res.json({ 
+    status: dbHealth.healthy ? 'ok' : 'degraded',
+    database: dbHealth,
+    timestamp: new Date().toISOString() 
+  });
 });
 
 // Routes
@@ -59,6 +66,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/exclusion-keywords', exclusionKeywordRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Error handling
 app.use(errorHandler);
@@ -68,10 +76,18 @@ const PORT = process.env.PORT || 3000;
 
 async function startServer() {
   try {
-    // Initialize services
-    await prisma.$connect();
+    // Test database connection
+    const dbHealth = await checkDatabaseHealth();
+    if (!dbHealth.healthy) {
+      throw new Error(`Database connection failed: ${dbHealth.error}`);
+    }
     logger.info('Database connected');
 
+    // Start connection monitoring
+    startConnectionMonitoring(1); // Monitor every 1 minute
+    logger.info('Connection monitoring started');
+
+    // Initialize job queue
     try {
       await initializeQueue();
       logger.info('Job queue initialized');
@@ -79,23 +95,39 @@ async function startServer() {
       logger.warn('Job queue initialization failed, continuing without queue:', queueError.message);
     }
 
+    // Start cron jobs
     await startCronJobs();
     logger.info('Cron jobs started');
 
-    app.listen(PORT, () => {
+    // Start HTTP server
+    const server = app.listen(PORT, () => {
       logger.info(`Server running on port ${PORT}`);
     });
+
+    // Graceful shutdown handler
+    const gracefulShutdown = async (signal) => {
+      logger.info(`${signal} signal received: starting graceful shutdown`);
+      
+      // Stop accepting new connections
+      server.close(() => {
+        logger.info('HTTP server closed');
+      });
+
+      // Close database connections
+      await disconnectDatabase();
+      
+      // Exit
+      process.exit(0);
+    };
+
+    // Register shutdown handlers
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
   } catch (error) {
     logger.error('Failed to start server:', error);
     process.exit(1);
   }
 }
-
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-  logger.info('SIGTERM signal received: closing HTTP server');
-  await prisma.$disconnect();
-  process.exit(0);
-});
 
 startServer();

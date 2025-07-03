@@ -1,7 +1,7 @@
-const { PrismaClient } = require('@prisma/client');
+const { getPrismaClient } = require('../utils/database');
 const logger = require('../utils/logger');
 
-const prisma = new PrismaClient();
+const prisma = getPrismaClient();
 
 async function cleanupOldNotifications() {
   try {

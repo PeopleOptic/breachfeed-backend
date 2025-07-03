@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const { getPrismaClient } = require('../utils/database');
+const prisma = getPrismaClient();
 const { authenticateApiKey } = require('../middleware/auth');
 
 // Get all exclusion keywords

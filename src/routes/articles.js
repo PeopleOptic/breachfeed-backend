@@ -1,5 +1,5 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
+const { getPrismaClient } = require('../utils/database');
 const Joi = require('joi');
 const { authenticateApiKey, authenticateJWT } = require('../middleware/auth');
 const { identifyUser } = require('../middleware/userIdentification');
@@ -7,7 +7,7 @@ const { optionalIdentifyUser } = require('../middleware/optionalUserIdentificati
 const { validateRequest } = require('../middleware/validation');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const prisma = getPrismaClient();
 
 // Helper function to calculate vote stats for articles
 async function calculateVoteStats(articles, userId = null) {

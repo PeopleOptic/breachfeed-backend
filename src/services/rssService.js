@@ -1,5 +1,5 @@
 const Parser = require('rss-parser');
-const { PrismaClient } = require('@prisma/client');
+const { getPrismaClient } = require('../utils/database');
 const logger = require('../utils/logger');
 const { matchArticleKeywords } = require('./matchingService');
 const { queueNotifications } = require('./notificationService');
@@ -16,7 +16,7 @@ const parser = new Parser({
   }
 });
 
-const prisma = new PrismaClient();
+const prisma = getPrismaClient();
 
 // Utility function to generate slug from title
 function generateSlug(title) {

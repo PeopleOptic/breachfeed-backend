@@ -1,12 +1,12 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
+const { getPrismaClient } = require('../utils/database');
 const Joi = require('joi');
 const { authenticateApiKey } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/validation');
 const AIService = require('../services/aiService');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const prisma = getPrismaClient();
 
 // Debug endpoint to check company schema
 router.get('/debug/schema', authenticateApiKey, async (req, res, next) => {

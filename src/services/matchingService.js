@@ -1,8 +1,8 @@
-const { PrismaClient } = require('@prisma/client');
+const { getPrismaClient } = require('../utils/database');
 const logger = require('../utils/logger');
 const AIService = require('./aiService');
 
-const prisma = new PrismaClient();
+const prisma = getPrismaClient();
 
 async function matchArticleKeywords(article) {
   try {
