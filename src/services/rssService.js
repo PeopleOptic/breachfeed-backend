@@ -2,6 +2,7 @@ const Parser = require('rss-parser');
 const { getPrismaClient } = require('../utils/database');
 const logger = require('../utils/logger');
 const { matchArticleKeywords } = require('./matchingService');
+const { matchArticleWithAIEntities, createEntitiesFromAI } = require('./enhancedMatchingService');
 const { queueNotifications } = require('./notificationService');
 const AIService = require('./aiService');
 const contentFetchService = require('./contentFetchService');
@@ -234,14 +235,34 @@ async function fetchAndProcessFeed(feed) {
         newArticles++;
         logger.info(`Successfully created article: ${article.title} (ID: ${article.id}) with ${hasFullContent ? 'full' : 'RSS'} content`);
         
-        // Match keywords and companies (skip if no entities exist)
+        // Match keywords and companies
         try {
-          const matches = await matchArticleKeywords(article);
-          logger.info(`Found ${matches.length} matches for article: ${article.title}`);
+          // First, use traditional matching
+          const traditionalMatches = await matchArticleKeywords(article);
+          logger.info(`Found ${traditionalMatches.length} traditional matches for article: ${article.title}`);
+          
+          // Then, use AI-enhanced matching if we have AI data
+          let aiMatches = [];
+          if (aiSummaryData && aiSummaryData.aiGenerated) {
+            // Create new entities from AI extraction if they don't exist
+            await createEntitiesFromAI(aiSummaryData);
+            
+            // Match using AI-extracted entities
+            aiMatches = await matchArticleWithAIEntities(article, aiSummaryData);
+            logger.info(`Found ${aiMatches.length} AI-enhanced matches for article: ${article.title}`);
+          }
+          
+          // Combine matches (removing duplicates)
+          const allMatches = [...traditionalMatches, ...aiMatches];
+          const uniqueMatches = allMatches.filter((match, index, self) =>
+            index === self.findIndex((m) => m.type === match.type && m.id === match.id)
+          );
+          
+          logger.info(`Total unique matches for article: ${uniqueMatches.length}`);
           
           // Queue notifications if matches found
-          if (matches.length > 0) {
-            await queueNotifications(article, matches);
+          if (uniqueMatches.length > 0) {
+            await queueNotifications(article, uniqueMatches);
           }
         } catch (matchError) {
           logger.warn(`Matching failed for article ${article.title}, continuing anyway:`, matchError);

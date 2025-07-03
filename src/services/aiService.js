@@ -110,7 +110,19 @@ Please analyze this article and provide:
    - CVE numbers, attack methods, vulnerabilities exploited
 
 8. RECOMMENDATIONS:
-   - Actionable steps organizations should take based on this incident
+   - Provide SPECIFIC, ACTIONABLE recommendations based on the exact threat described
+   - Include technical mitigations, detection methods, and response steps
+   - Reference specific tools, configurations, or patches when applicable
+   - Tailor recommendations to the incident type and affected systems
+
+9. ENTITIES:
+   - Companies mentioned (with proper names)
+   - Government agencies referenced
+   - Geographic locations (countries, cities, regions)
+   - Key technologies, products, or services
+
+10. TAGS:
+   - Generate relevant tags for categorization (e.g., "cisco", "vulnerability", "authentication-bypass")
 
 Format your response as JSON with these exact fields:
 {
@@ -122,8 +134,12 @@ Format your response as JSON with these exact fields:
   "timeline": ["event1", "event2"],
   "impact": ["impact1", "impact2"],
   "technicalDetails": ["detail1", "detail2"],
-  "recommendations": "Multi-line string with specific recommendations",
-  "affectedEntities": ["entity1", "entity2"]
+  "recommendations": "Detailed, specific recommendations with concrete steps",
+  "affectedEntities": ["entity1", "entity2"],
+  "companies": ["Company Name 1", "Company Name 2"],
+  "agencies": ["Agency 1", "Agency 2"],
+  "locations": ["Location 1", "Location 2"],
+  "tags": ["tag1", "tag2", "tag3"]
 }`;
 
       const response = await anthropicClient.messages.create({
@@ -167,7 +183,12 @@ Format your response as JSON with these exact fields:
         technicalDetails: parsedResponse.technicalDetails || [],
         contentLength: contentText.length,
         isComprehensive: true,
-        aiGenerated: true
+        aiGenerated: true,
+        // New entity extraction fields
+        companies: parsedResponse.companies || [],
+        agencies: parsedResponse.agencies || [],
+        locations: parsedResponse.locations || [],
+        tags: parsedResponse.tags || []
       };
 
     } catch (error) {
