@@ -218,8 +218,7 @@ async function createEntitiesFromAI(aiData) {
           const company = await prisma.company.create({
             data: {
               name: companyName,
-              isActive: true,
-              createdBy: 'AI_EXTRACTION'
+              isActive: true
             }
           });
           created.companies.push(company);
@@ -245,8 +244,7 @@ async function createEntitiesFromAI(aiData) {
             data: {
               name: agencyName,
               country: 'US', // Default, can be improved with location detection
-              isActive: true,
-              createdBy: 'AI_EXTRACTION'
+              isActive: true
             }
           });
           created.agencies.push(agency);
@@ -276,8 +274,7 @@ async function createEntitiesFromAI(aiData) {
               name: locationName,
               type: locationType,
               country: locationType === 'COUNTRY' ? locationName : null,
-              isActive: true,
-              createdBy: 'AI_EXTRACTION'
+              isActive: true
             }
           });
           created.locations.push(location);

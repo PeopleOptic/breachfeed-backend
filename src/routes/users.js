@@ -5,9 +5,15 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { authenticateJWT } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/validation');
+const logger = require('../utils/logger');
 
 const router = express.Router();
 const prisma = getPrismaClient();
+
+// Check JWT configuration on startup
+if (!process.env.JWT_EXPIRES_IN) {
+  logger.warn('JWT_EXPIRES_IN not set in environment, defaulting to 7d');
+}
 
 // Validation schemas
 const registerSchema = Joi.object({
@@ -48,7 +54,7 @@ router.post('/register', validateRequest(registerSchema), async (req, res, next)
       const token = jwt.sign(
         { userId: updatedUser.id, email: updatedUser.email },
         process.env.JWT_SECRET,
-        { expiresIn: process.env.JWT_EXPIRES_IN }
+        { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
       );
       
       return res.json({ user: updatedUser, token });
@@ -62,7 +68,7 @@ router.post('/register', validateRequest(registerSchema), async (req, res, next)
     const token = jwt.sign(
       { userId: user.id, email: user.email },
       process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN }
+      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
     
     res.status(201).json({ user, token });

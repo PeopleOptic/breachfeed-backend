@@ -166,7 +166,34 @@ Format your response as JSON with these exact fields:
         return null;
       }
 
-      const parsedResponse = JSON.parse(jsonMatch[0]);
+      let parsedResponse;
+      try {
+        // Try parsing as-is first
+        parsedResponse = JSON.parse(jsonMatch[0]);
+      } catch (parseError) {
+        // If that fails, try cleaning the JSON
+        logger.warn('Initial JSON parse failed, attempting to clean:', parseError.message);
+        
+        // Clean problematic characters from string values only
+        let cleanedJson = jsonMatch[0];
+        
+        // Replace unescaped newlines/tabs in string values
+        cleanedJson = cleanedJson.replace(/"([^"\\]*(\\.[^"\\]*)*)"/g, (match) => {
+          return match
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r')
+            .replace(/\t/g, '\\t')
+            .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+        });
+        
+        try {
+          parsedResponse = JSON.parse(cleanedJson);
+        } catch (secondError) {
+          logger.error('Failed to parse cleaned JSON:', secondError);
+          logger.error('Original JSON:', jsonMatch[0].substring(0, 500) + '...');
+          return null;
+        }
+      }
 
       // Convert to our expected format
       return {
