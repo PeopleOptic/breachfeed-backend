@@ -367,3 +367,16 @@ model ExclusionKeyword {
   @@index([feedId])
   @@index([isActive])
 }
+
+model DeletedArticle {
+  id          String   @id @default(cuid())
+  articleLink String   @unique // The original article link to prevent re-addition
+  articleGuid String?  // The original article GUID if available
+  deletedAt   DateTime @default(now())
+  deletedBy   String?  // Track who deleted it (user ID or "system")
+  reason      String?  // Optional reason for deletion
+
+  @@index([articleLink])
+  @@index([articleGuid])
+  @@index([deletedAt])
+}

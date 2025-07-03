@@ -1006,5 +1006,63 @@ router.get('/by-tag/:tag', authenticateApiKey, async (req, res, next) => {
   }
 });
 
+// Delete article endpoint
+router.delete('/:id', authenticateApiKey, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    
+    // First, find the article to get its link and guid
+    const article = await prisma.article.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        link: true,
+        guid: true,
+        title: true
+      }
+    });
+    
+    if (!article) {
+      return res.status(404).json({ error: 'Article not found' });
+    }
+    
+    // Use a transaction to ensure both operations succeed or fail together
+    const result = await prisma.$transaction(async (tx) => {
+      // Add to deleted articles tracking
+      await tx.deletedArticle.create({
+        data: {
+          articleLink: article.link,
+          articleGuid: article.guid,
+          deletedBy: req.apiKeyDetails?.apiKey || 'system',
+          reason: reason || 'Deleted via API'
+        }
+      });
+      
+      // Delete the article and all its relations
+      await tx.article.delete({
+        where: { id }
+      });
+      
+      return article;
+    });
+    
+    res.json({
+      success: true,
+      message: 'Article deleted successfully',
+      deletedArticle: {
+        id: result.id,
+        title: result.title,
+        link: result.link
+      }
+    });
+  } catch (error) {
+    if (error.code === 'P2025') {
+      return res.status(404).json({ error: 'Article not found' });
+    }
+    next(error);
+  }
+});
+
 
 module.exports = router;

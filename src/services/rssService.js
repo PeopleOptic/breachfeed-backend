@@ -75,6 +75,16 @@ async function fetchAndProcessFeed(feed) {
         
         if (existingArticle) continue;
         
+        // Check if article was previously deleted
+        const deletedArticle = await prisma.deletedArticle.findUnique({
+          where: { articleLink: item.link }
+        });
+        
+        if (deletedArticle) {
+          logger.info(`Skipping previously deleted article: ${item.title} (deleted on ${deletedArticle.deletedAt})`);
+          continue;
+        }
+        
         // Prepare categories array from RSS feed
         let originalCategories = [];
         if (item.categories) {
