@@ -27,6 +27,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.55.1",
     "@mozilla/readability": "^0.6.0",
     "@prisma/client": "^5.7.0",
     "@sendgrid/mail": "^8.1.0",

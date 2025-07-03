@@ -1,7 +1,20 @@
 const { PrismaClient } = require('@prisma/client');
 const logger = require('../utils/logger');
+const Anthropic = require('@anthropic-ai/sdk');
 
 const prisma = new PrismaClient();
+
+// Initialize Anthropic client if API key is available
+const anthropicClient = process.env.ANTHROPIC_API_KEY ? 
+  new Anthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY
+  }) : null;
+
+if (anthropicClient) {
+  logger.info('Anthropic AI client initialized successfully');
+} else {
+  logger.warn('Anthropic AI client not initialized - no API key found');
+}
 
 /**
  * AI Service for generating summaries and recommendations
@@ -20,6 +33,18 @@ class AIService {
       // Use full content if available, otherwise fall back to RSS content
       const contentToAnalyze = fullContent?.textContent || `${article.title} ${article.description} ${article.content}`;
       
+      // If we have Anthropic API configured and substantial content, use real AI
+      if (anthropicClient && contentToAnalyze.length > 500) {
+        try {
+          const aiSummary = await this.generateAISummary(article, contentToAnalyze);
+          if (aiSummary) {
+            return aiSummary;
+          }
+        } catch (aiError) {
+          logger.error('AI summary generation failed, falling back to template:', aiError);
+        }
+      }
+      
       // If we have substantial full content, create a more detailed summary
       if (fullContent?.textContent && fullContent.textContent.length > 1000) {
         return this.createEnhancedSummary(article, fullContent, contentToAnalyze);
@@ -34,6 +59,123 @@ class AIService {
     }
   }
   
+  /**
+   * Generate AI-powered summary using Anthropic Claude
+   */
+  static async generateAISummary(article, contentText) {
+    try {
+      if (!anthropicClient) {
+        return null;
+      }
+
+      logger.info(`Generating AI summary for article: ${article.title}`);
+
+      // Prepare the prompt
+      const prompt = `You are a cybersecurity analyst tasked with summarizing security incidents for a threat intelligence platform. 
+
+Article Title: ${article.title}
+Published: ${article.publishedAt}
+Source: ${article.link}
+
+Article Content:
+${contentText.substring(0, 8000)} // Limit content to avoid token limits
+
+Please analyze this article and provide:
+
+1. ALERT CLASSIFICATION (choose one):
+   - CONFIRMED_BREACH: Verified data breach or successful attack with confirmed damage
+   - SECURITY_INCIDENT: Active or suspected incident under investigation
+   - SECURITY_MENTION: Security news, vulnerabilities, or general updates
+
+2. SEVERITY ASSESSMENT:
+   - CRITICAL: Immediate action required, widespread impact
+   - HIGH: Significant threat requiring prompt attention
+   - MEDIUM: Notable security concern
+   - LOW: Minor issue or informational
+
+3. INCIDENT TYPE (if applicable):
+   - DATA_BREACH, RANSOMWARE, MALWARE, PHISHING, VULNERABILITY, DDOS, INSIDER_THREAT, SUPPLY_CHAIN, or OTHER
+
+4. KEY FACTS:
+   - List 3-5 most important facts from the article
+   - Include numbers, dates, affected systems when mentioned
+
+5. TIMELINE:
+   - Extract any time-related information about the incident
+
+6. IMPACT:
+   - Who/what is affected and how
+
+7. TECHNICAL DETAILS:
+   - CVE numbers, attack methods, vulnerabilities exploited
+
+8. RECOMMENDATIONS:
+   - Actionable steps organizations should take based on this incident
+
+Format your response as JSON with these exact fields:
+{
+  "alertType": "CONFIRMED_BREACH|SECURITY_INCIDENT|SECURITY_MENTION",
+  "severity": "CRITICAL|HIGH|MEDIUM|LOW",
+  "incidentType": "string",
+  "summary": "A concise 2-3 sentence summary starting with the appropriate emoji (🚨 for CONFIRMED_BREACH, ⚠️ for SECURITY_INCIDENT, ℹ️ for SECURITY_MENTION)",
+  "keyFacts": ["fact1", "fact2", "fact3"],
+  "timeline": ["event1", "event2"],
+  "impact": ["impact1", "impact2"],
+  "technicalDetails": ["detail1", "detail2"],
+  "recommendations": "Multi-line string with specific recommendations",
+  "affectedEntities": ["entity1", "entity2"]
+}`;
+
+      const response = await anthropicClient.messages.create({
+        model: 'claude-3-haiku-20240307', // Using Haiku for cost efficiency
+        max_tokens: 1000,
+        temperature: 0.3,
+        system: "You are a cybersecurity analyst expert at analyzing security incidents and providing actionable intelligence.",
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ]
+      });
+
+      // Parse the AI response
+      const aiResponse = response.content[0].text;
+      logger.info('AI response received:', aiResponse.substring(0, 200) + '...');
+
+      // Try to extract JSON from the response
+      const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        logger.error('No JSON found in AI response');
+        return null;
+      }
+
+      const parsedResponse = JSON.parse(jsonMatch[0]);
+
+      // Convert to our expected format
+      return {
+        summary: parsedResponse.summary || this.createSummary(article, parsedResponse.incidentType, parsedResponse.severity, parsedResponse.affectedEntities, parsedResponse.alertType),
+        recommendations: parsedResponse.recommendations || this.generateRecommendations(parsedResponse.incidentType, parsedResponse.severity, parsedResponse.alertType),
+        incidentType: parsedResponse.incidentType || 'OTHER',
+        severity: parsedResponse.severity || 'MEDIUM',
+        affectedEntities: parsedResponse.affectedEntities || [],
+        alertType: parsedResponse.alertType || 'SECURITY_MENTION',
+        classificationConfidence: 0.9, // High confidence for AI classification
+        keyFacts: parsedResponse.keyFacts || [],
+        timeline: parsedResponse.timeline || [],
+        impact: parsedResponse.impact || [],
+        technicalDetails: parsedResponse.technicalDetails || [],
+        contentLength: contentText.length,
+        isComprehensive: true,
+        aiGenerated: true
+      };
+
+    } catch (error) {
+      logger.error('Error in AI summary generation:', error);
+      return null;
+    }
+  }
+
   /**
    * Create enhanced summary from full article content
    */
@@ -292,18 +434,30 @@ class AIService {
    */
   static async generateIncidentSummary(article) {
     try {
-      // This is a simplified template-based approach
-      // In production, you'd use a proper AI service like OpenAI GPT-4
+      const content = `${article.title} ${article.description} ${article.content}`;
       
-      const content = `${article.title} ${article.description} ${article.content}`.toLowerCase();
+      // Try AI summary first if available
+      if (anthropicClient && content.length > 300) {
+        try {
+          const aiSummary = await this.generateAISummary(article, content);
+          if (aiSummary) {
+            return aiSummary;
+          }
+        } catch (aiError) {
+          logger.error('AI summary generation failed for basic summary, falling back to template:', aiError);
+        }
+      }
+      
+      // Fall back to template-based approach
+      const contentLower = content.toLowerCase();
       
       // Classify alert type first
-      const alertClassification = this.classifyAlertType(content, article);
+      const alertClassification = this.classifyAlertType(contentLower, article);
       
       // Extract key information
-      const incidentType = this.detectIncidentType(content);
-      const severity = this.assessSeverity(content);
-      const affectedEntities = this.extractAffectedEntities(content);
+      const incidentType = this.detectIncidentType(contentLower);
+      const severity = this.assessSeverity(contentLower);
+      const affectedEntities = this.extractAffectedEntities(contentLower);
       
       // Generate summary based on alert type
       const summary = this.createSummary(article, incidentType, severity, affectedEntities, alertClassification.alertType);
@@ -329,7 +483,7 @@ class AIService {
         incidentType: 'OTHER',
         severity: 'MEDIUM',
         affectedEntities: [],
-        alertType: 'MENTION',
+        alertType: 'SECURITY_MENTION',
         classificationConfidence: 0.3
       };
     }
