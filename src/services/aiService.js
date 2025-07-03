@@ -58,8 +58,8 @@ class AIService {
     // Alert header
     const alertPrefixes = {
       'CONFIRMED_BREACH': '🚨 CONFIRMED BREACH: ',
-      'INCIDENT': '⚠️ ACTIVE INCIDENT: ',
-      'MENTION': 'ℹ️ SECURITY UPDATE: '
+      'SECURITY_INCIDENT': '⚠️ ACTIVE INCIDENT: ',
+      'SECURITY_MENTION': 'ℹ️ SECURITY UPDATE: '
     };
     summary += alertPrefixes[alertClassification.alertType] || '';
     
@@ -538,7 +538,7 @@ class AIService {
       'RANSOMWARE': ['ransomware', 'encrypted files', 'ransom demand', 'lockbit', 'ryuk', 'conti', 'ransom payment'],
       'MALWARE': ['malware', 'trojan', 'virus', 'backdoor', 'remote access', 'infected systems'],
       'PHISHING': ['phishing', 'fraudulent email', 'credential theft', 'fake website', 'spear phishing'],
-      'VULNERABILITY': ['vulnerability', 'security flaw', 'zero-day', 'exploit', 'patch', 'cve-'],
+      'VULNERABILITY': ['vulnerability', 'security flaw', 'zero-day', 'exploit', 'patch', 'cve-', 'hardcoded', 'root credentials', 'root access', 'authentication bypass', 'privilege escalation'],
       'DDOS': ['ddos', 'denial of service', 'traffic flood', 'service disruption', 'distributed denial'],
       'INSIDER_THREAT': ['insider threat', 'employee', 'privileged access', 'internal', 'rogue employee'],
       'SUPPLY_CHAIN': ['supply chain', 'third party', 'vendor', 'upstream', 'supplier compromise']
@@ -562,7 +562,12 @@ class AIService {
         content.includes('critical infrastructure') ||
         content.includes('government') ||
         content.includes('hospital') ||
-        content.includes('power grid')) {
+        content.includes('power grid') ||
+        content.includes('max severity') ||
+        content.includes('max-severity') ||
+        content.includes('cvss 10') ||
+        content.includes('root credentials') ||
+        content.includes('root access')) {
       return 'CRITICAL';
     }
     
@@ -615,61 +620,61 @@ class AIService {
   static createSummary(article, incidentType, severity, affectedEntities, alertType) {
     const alertPrefixes = {
       'CONFIRMED_BREACH': '🚨 CONFIRMED BREACH: ',
-      'INCIDENT': '⚠️ ACTIVE INCIDENT: ',
-      'MENTION': 'ℹ️ SECURITY UPDATE: '
+      'SECURITY_INCIDENT': '⚠️ ACTIVE INCIDENT: ',
+      'SECURITY_MENTION': 'ℹ️ SECURITY UPDATE: '
     };
     
     const typeDescriptions = {
       'DATA_BREACH': {
         'CONFIRMED_BREACH': 'A confirmed data breach has exposed sensitive information',
-        'INCIDENT': 'A potential data breach is being investigated',
-        'MENTION': 'Data breach activity has been mentioned'
+        'SECURITY_INCIDENT': 'A potential data breach is being investigated',
+        'SECURITY_MENTION': 'Data breach activity has been mentioned'
       },
       'RANSOMWARE': {
         'CONFIRMED_BREACH': 'A ransomware attack has successfully encrypted systems',
-        'INCIDENT': 'An active ransomware attack is in progress',
-        'MENTION': 'Ransomware activity has been reported'
+        'SECURITY_INCIDENT': 'An active ransomware attack is in progress',
+        'SECURITY_MENTION': 'Ransomware activity has been reported'
       },
       'MALWARE': {
         'CONFIRMED_BREACH': 'Malware has compromised systems',
-        'INCIDENT': 'Malware activity is currently being addressed',
-        'MENTION': 'Malware has been mentioned in security context'
+        'SECURITY_INCIDENT': 'Malware activity is currently being addressed',
+        'SECURITY_MENTION': 'Malware has been mentioned in security context'
       },
       'PHISHING': {
         'CONFIRMED_BREACH': 'A phishing campaign has successfully compromised accounts',
-        'INCIDENT': 'An active phishing campaign is targeting users',
-        'MENTION': 'Phishing activity has been identified'
+        'SECURITY_INCIDENT': 'An active phishing campaign is targeting users',
+        'SECURITY_MENTION': 'Phishing activity has been identified'
       },
       'VULNERABILITY': {
         'CONFIRMED_BREACH': 'A vulnerability has been actively exploited',
-        'INCIDENT': 'A critical vulnerability is being assessed',
-        'MENTION': 'A security vulnerability has been disclosed'
+        'SECURITY_INCIDENT': 'A critical vulnerability is being assessed',
+        'SECURITY_MENTION': 'A security vulnerability has been disclosed'
       },
       'DDOS': {
         'CONFIRMED_BREACH': 'Services have been taken offline by a DDoS attack',
-        'INCIDENT': 'An ongoing DDoS attack is affecting services',
-        'MENTION': 'DDoS activity has been reported'
+        'SECURITY_INCIDENT': 'An ongoing DDoS attack is affecting services',
+        'SECURITY_MENTION': 'DDoS activity has been reported'
       },
       'INSIDER_THREAT': {
         'CONFIRMED_BREACH': 'An insider has compromised sensitive data',
-        'INCIDENT': 'Potential insider threat activity is being investigated',
-        'MENTION': 'Insider threat concerns have been raised'
+        'SECURITY_INCIDENT': 'Potential insider threat activity is being investigated',
+        'SECURITY_MENTION': 'Insider threat concerns have been raised'
       },
       'SUPPLY_CHAIN': {
         'CONFIRMED_BREACH': 'A supply chain attack has compromised systems',
-        'INCIDENT': 'Supply chain security incident is being investigated',
-        'MENTION': 'Supply chain security has been mentioned'
+        'SECURITY_INCIDENT': 'Supply chain security incident is being investigated',
+        'SECURITY_MENTION': 'Supply chain security has been mentioned'
       },
       'OTHER': {
         'CONFIRMED_BREACH': 'A confirmed security breach has occurred',
-        'INCIDENT': 'A security incident is being investigated',
-        'MENTION': 'Security-related activity has been reported'
+        'SECURITY_INCIDENT': 'A security incident is being investigated',
+        'SECURITY_MENTION': 'Security-related activity has been reported'
       }
     };
     
     // Get appropriate description based on incident and alert type
     const descriptions = typeDescriptions[incidentType] || typeDescriptions['OTHER'];
-    let summary = alertPrefixes[alertType] + (descriptions[alertType] || descriptions['MENTION']);
+    let summary = alertPrefixes[alertType] + (descriptions[alertType] || descriptions['SECURITY_MENTION']);
     
     if (affectedEntities.length > 0) {
       summary += ` affecting ${affectedEntities.slice(0, 2).join(' and ')}`;
@@ -680,12 +685,17 @@ class AIService {
     
     summary += `. Severity level: ${severity.toLowerCase()}.`;
     
-    // Add key details from description
-    if (article.description) {
-      const keyInfo = this.extractKeyInformation(article.description);
-      if (keyInfo) {
-        summary += ` ${keyInfo}`;
-      }
+    // Add key details from description and content
+    const fullText = `${article.description || ''} ${article.content || ''}`;
+    const keyInfo = this.extractKeyInformation(fullText);
+    if (keyInfo) {
+      summary += ` ${keyInfo}`;
+    }
+    
+    // Add CVE if present
+    const cveMatch = fullText.match(/CVE-\d{4}-\d+/i);
+    if (cveMatch && !summary.includes(cveMatch[0])) {
+      summary += ` (${cveMatch[0]})`;
     }
     
     return summary;
@@ -694,22 +704,26 @@ class AIService {
   /**
    * Extract key information from description
    */
-  static extractKeyInformation(description) {
+  static extractKeyInformation(text) {
     // Look for numbers, dates, and key facts
     const patterns = [
-      /(\d+(?:,\d{3})*)\s+(?:records|users|customers|accounts)/i,
-      /(?:discovered|reported|occurred)\s+(?:on|in)\s+([^.]+)/i,
-      /(compromised|exposed|stolen|leaked)\s+([^.]+)/i
+      /(\d+(?:,\d{3})*)\s+(?:records|users|customers|accounts|devices|systems)/i,
+      /(?:discovered|reported|occurred|found)\s+(?:on|in)\s+([^.]+)/i,
+      /(compromised|exposed|stolen|leaked|hardcoded|vulnerable)\s+([^.]+)/i,
+      /(root|admin|password|credential|login)\s+(?:access|credentials?)\s+([^.]+)/i,
+      /affects?\s+([^.]+(?:version|release|build)[^.]+)/i,
+      /CVSS\s*(?:score|rating)?\s*(?:of|:)?\s*([\d.]+)/i
     ];
     
+    const keyFacts = [];
     for (const pattern of patterns) {
-      const match = description.match(pattern);
-      if (match) {
-        return match[0];
+      const match = text.match(pattern);
+      if (match && match[0].length < 150) {
+        keyFacts.push(match[0].trim());
       }
     }
     
-    return null;
+    return keyFacts.slice(0, 2).join('. ') || null;
   }
   
   /**
