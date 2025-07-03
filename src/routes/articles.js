@@ -8,6 +8,60 @@ const { validateRequest } = require('../middleware/validation');
 const router = express.Router();
 const prisma = new PrismaClient();
 
+// Helper function to calculate vote stats for articles
+async function calculateVoteStats(articles, userId = null) {
+  if (!Array.isArray(articles)) {
+    articles = [articles];
+  }
+  
+  const articleIds = articles.map(a => a.id);
+  
+  // Get all votes for these articles
+  const votes = await prisma.articleVote.findMany({
+    where: { articleId: { in: articleIds } }
+  });
+  
+  // Get user's votes if userId provided
+  let userVotes = {};
+  if (userId) {
+    const userVoteRecords = await prisma.articleVote.findMany({
+      where: {
+        articleId: { in: articleIds },
+        userId: userId
+      }
+    });
+    userVotes = userVoteRecords.reduce((acc, vote) => {
+      acc[vote.articleId] = vote.voteType;
+      return acc;
+    }, {});
+  }
+  
+  // Calculate stats for each article
+  const statsMap = {};
+  articles.forEach(article => {
+    const articleVotes = votes.filter(v => v.articleId === article.id);
+    const upvotes = articleVotes.filter(v => v.voteType === 'UP').length;
+    const downvotes = articleVotes.filter(v => v.voteType === 'DOWN').length;
+    
+    statsMap[article.id] = {
+      upvotes,
+      downvotes,
+      score: upvotes - downvotes,
+      userVote: userVotes[article.id] || null
+    };
+  });
+  
+  // Return single article or array
+  if (articles.length === 1) {
+    return { ...articles[0], voteStats: statsMap[articles[0].id] };
+  }
+  
+  return articles.map(article => ({
+    ...article,
+    voteStats: statsMap[article.id]
+  }));
+}
+
 // Utility function to generate slug from title
 function generateSlug(title) {
   return title
@@ -68,12 +122,13 @@ router.get('/test', authenticateApiKey, async (req, res, next) => {
 });
 
 // Search articles with filters
-router.get('/search', authenticateApiKey, async (req, res, next) => {
+router.get('/search', authenticateApiKey, identifyUser, async (req, res, next) => {
   try {
     const {
       q, feedId, startDate, endDate, categories,
       page, limit, sortBy, sortOrder
     } = req.query;
+    const userId = req.userId; // From identifyUser middleware
     
     // Build where clause
     const where = {};
@@ -136,8 +191,11 @@ router.get('/search', authenticateApiKey, async (req, res, next) => {
       prisma.article.count({ where })
     ]);
     
+    // Add vote stats to articles
+    const articlesWithVotes = await calculateVoteStats(articles, userId);
+    
     res.json({
-      articles,
+      articles: articlesWithVotes,
       pagination: {
         page,
         limit,
@@ -151,11 +209,12 @@ router.get('/search', authenticateApiKey, async (req, res, next) => {
 });
 
 // Get popular articles (must be before /:id route)
-router.get('/popular', authenticateApiKey, async (req, res, next) => {
+router.get('/popular', authenticateApiKey, identifyUser, async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const days = parseInt(req.query.days) || 7;
+    const userId = req.userId; // From identifyUser middleware
     
     // Calculate date range
     const startDate = new Date();
@@ -214,8 +273,11 @@ router.get('/popular', authenticateApiKey, async (req, res, next) => {
       })
     ]);
     
+    // Add vote stats to articles
+    const articlesWithVotes = await calculateVoteStats(articles, userId);
+    
     res.json({
-      articles,
+      articles: articlesWithVotes,
       pagination: {
         page,
         limit,
@@ -229,11 +291,12 @@ router.get('/popular', authenticateApiKey, async (req, res, next) => {
 });
 
 // Get all articles (paginated with filtering)
-router.get('/', authenticateApiKey, async (req, res, next) => {
+router.get('/', authenticateApiKey, identifyUser, async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const { alertType, severity, search } = req.query;
+    const userId = req.userId; // From identifyUser middleware
     
     // Build where clause for filtering
     const where = {};
@@ -323,8 +386,11 @@ router.get('/', authenticateApiKey, async (req, res, next) => {
       })
     );
     
+    // Add vote stats to articles
+    const articlesWithVotes = await calculateVoteStats(articlesWithMatches, userId);
+    
     res.json({
-      articles: articlesWithMatches,
+      articles: articlesWithVotes,
       pagination: {
         page,
         limit,
@@ -546,7 +612,11 @@ router.patch('/:id', authenticateApiKey, validateRequest(updateArticleSchema), a
       timestamp: new Date().toISOString()
     });
     
-    res.json(updatedArticle);
+    // Add vote stats to the updated article
+    const userId = req.userId; // May be undefined if not using identifyUser
+    const articleWithVotes = await calculateVoteStats(updatedArticle, userId);
+    
+    res.json(articleWithVotes);
   } catch (error) {
     if (error.code === 'P2025') {
       return res.status(404).json({ error: 'Article not found' });
@@ -556,10 +626,10 @@ router.patch('/:id', authenticateApiKey, validateRequest(updateArticleSchema), a
 });
 
 // Get single article with full details
-router.get('/:identifier', authenticateApiKey, async (req, res, next) => {
+router.get('/:identifier', authenticateApiKey, identifyUser, async (req, res, next) => {
   try {
     const { includeFullContent } = req.query;
-    const userId = req.headers['x-user-id']; // Optional user ID for vote status
+    const userId = req.userId; // From identifyUser middleware
     const { identifier } = req.params;
     
     // Check if identifier is a valid UUID (for ID lookup) or use as slug
@@ -615,61 +685,15 @@ router.get('/:identifier', authenticateApiKey, async (req, res, next) => {
       article.matchedLocations = [];
     }
     
-    // Get vote stats
-    let voteStats = {
-      upvotes: 0,
-      downvotes: 0,
-      score: 0,
-      userVote: null
-    };
-    
-    try {
-      const votes = await prisma.articleVote.groupBy({
-        by: ['voteType'],
-        where: { articleId: article.id },
-        _count: true
-      });
-      
-      const upvotes = votes.find(v => v.voteType === 'UP')?._count || 0;
-      const downvotes = votes.find(v => v.voteType === 'DOWN')?._count || 0;
-      
-      voteStats = {
-        upvotes,
-        downvotes,
-        score: upvotes - downvotes,
-        userVote: null
-      };
-      
-      // Get user vote if user ID provided
-      if (userId) {
-        const userVote = await prisma.articleVote.findUnique({
-          where: {
-            userId_articleId: {
-              userId,
-              articleId: article.id
-            }
-          }
-        });
-        if (userVote) {
-          voteStats.userVote = userVote.voteType;
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching vote stats:', error);
-    }
-    
-    // Prepare response
-    const response = {
-      ...article,
-      voteStats
-    };
+    // Get vote stats using the helper function
+    const articleWithVotes = await calculateVoteStats(article, userId);
     
     // Remove full content if not requested
     if (!includeFullContent) {
-      delete response.content;
+      delete articleWithVotes.content;
     }
     
-    res.json(response);
+    res.json(articleWithVotes);
   } catch (error) {
     console.error('Error in GET /articles/:identifier:', error);
     res.status(500).json({
@@ -680,10 +704,11 @@ router.get('/:identifier', authenticateApiKey, async (req, res, next) => {
 });
 
 // Get articles by matched keyword
-router.get('/keyword/:keywordId', authenticateApiKey, async (req, res, next) => {
+router.get('/keyword/:keywordId', authenticateApiKey, identifyUser, async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
+    const userId = req.userId; // From identifyUser middleware
     
     const articles = await prisma.article.findMany({
       where: {
@@ -707,7 +732,10 @@ router.get('/keyword/:keywordId', authenticateApiKey, async (req, res, next) => 
       orderBy: { publishedAt: 'desc' }
     });
     
-    res.json(articles);
+    // Add vote stats to articles
+    const articlesWithVotes = await calculateVoteStats(articles, userId);
+    
+    res.json(articlesWithVotes);
   } catch (error) {
     next(error);
   }
@@ -715,13 +743,15 @@ router.get('/keyword/:keywordId', authenticateApiKey, async (req, res, next) => 
 
 // Get articles for a specific user based on their subscriptions
 // Updated to use API key authentication for WordPress integration
-router.get('/user-feed', authenticateApiKey, async (req, res, next) => {
+router.get('/user-feed', authenticateApiKey, identifyUser, async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const { user_email, severity, days } = req.query;
+    const currentUserId = req.userId; // From identifyUser middleware
     
     let articles = [];
+    let userId = null;
     
     if (user_email) {
       // Get user by email
@@ -739,100 +769,104 @@ router.get('/user-feed', authenticateApiKey, async (req, res, next) => {
         }
       });
       
-      if (user && user.subscriptions.length > 0) {
-        const companyIds = user.subscriptions
-          .filter(s => s.type === 'COMPANY')
-          .map(s => s.targetId);
-        const keywordIds = user.subscriptions
-          .filter(s => s.type === 'KEYWORD')
-          .map(s => s.targetId);
-        const agencyIds = user.subscriptions
-          .filter(s => s.type === 'AGENCY')
-          .map(s => s.targetId);
-        const locationIds = user.subscriptions
-          .filter(s => s.type === 'LOCATION')
-          .map(s => s.targetId);
+      if (user) {
+        userId = user.id;
         
-        // Build where conditions
-        const whereConditions = [];
-        
-        if (keywordIds.length > 0) {
-          whereConditions.push({
-            matchedKeywords: {
-              some: {
-                keywordId: { in: keywordIds }
-              }
-            }
-          });
-        }
-        
-        if (companyIds.length > 0) {
-          whereConditions.push({
-            matchedCompanies: {
-              some: {
-                companyId: { in: companyIds }
-              }
-            }
-          });
-        }
-        
-        if (agencyIds.length > 0) {
-          whereConditions.push({
-            matchedAgencies: {
-              some: {
-                agencyId: { in: agencyIds }
-              }
-            }
-          });
-        }
-        
-        if (locationIds.length > 0) {
-          whereConditions.push({
-            matchedLocations: {
-              some: {
-                locationId: { in: locationIds }
-              }
-            }
-          });
-        }
-        
-        if (whereConditions.length > 0) {
-          const where = { OR: whereConditions };
+        if (user.subscriptions.length > 0) {
+          const companyIds = user.subscriptions
+            .filter(s => s.type === 'COMPANY')
+            .map(s => s.targetId);
+          const keywordIds = user.subscriptions
+            .filter(s => s.type === 'KEYWORD')
+            .map(s => s.targetId);
+          const agencyIds = user.subscriptions
+            .filter(s => s.type === 'AGENCY')
+            .map(s => s.targetId);
+          const locationIds = user.subscriptions
+            .filter(s => s.type === 'LOCATION')
+            .map(s => s.targetId);
           
-          // Add time filter
-          if (days) {
-            const daysAgo = new Date(Date.now() - parseInt(days) * 24 * 60 * 60 * 1000);
-            where.publishedAt = { gte: daysAgo };
-          }
+          // Build where conditions
+          const whereConditions = [];
           
-          // Add severity filter
-          if (severity) {
-            where.severity = severity;
-          }
-          
-          articles = await prisma.article.findMany({
-            where,
-            include: {
-              feed: {
-                select: { id: true, name: true }
-              },
+          if (keywordIds.length > 0) {
+            whereConditions.push({
               matchedKeywords: {
-                include: { keyword: true }
-              },
-              matchedCompanies: {
-                include: { company: true }
-              },
-              matchedAgencies: {
-                include: { agency: true }
-              },
-              matchedLocations: {
-                include: { location: true }
+                some: {
+                  keywordId: { in: keywordIds }
+                }
               }
-            },
-            skip: (page - 1) * limit,
-            take: limit,
-            orderBy: { publishedAt: 'desc' }
-          });
+            });
+          }
+          
+          if (companyIds.length > 0) {
+            whereConditions.push({
+              matchedCompanies: {
+                some: {
+                  companyId: { in: companyIds }
+                }
+              }
+            });
+          }
+          
+          if (agencyIds.length > 0) {
+            whereConditions.push({
+              matchedAgencies: {
+                some: {
+                  agencyId: { in: agencyIds }
+                }
+              }
+            });
+          }
+          
+          if (locationIds.length > 0) {
+            whereConditions.push({
+              matchedLocations: {
+                some: {
+                  locationId: { in: locationIds }
+                }
+              }
+            });
+          }
+          
+          if (whereConditions.length > 0) {
+            const where = { OR: whereConditions };
+            
+            // Add time filter
+            if (days) {
+              const daysAgo = new Date(Date.now() - parseInt(days) * 24 * 60 * 60 * 1000);
+              where.publishedAt = { gte: daysAgo };
+            }
+            
+            // Add severity filter
+            if (severity) {
+              where.severity = severity;
+            }
+            
+            articles = await prisma.article.findMany({
+              where,
+              include: {
+                feed: {
+                  select: { id: true, name: true }
+                },
+                matchedKeywords: {
+                  include: { keyword: true }
+                },
+                matchedCompanies: {
+                  include: { company: true }
+                },
+                matchedAgencies: {
+                  include: { agency: true }
+                },
+                matchedLocations: {
+                  include: { location: true }
+                }
+              },
+              skip: (page - 1) * limit,
+              take: limit,
+              orderBy: { publishedAt: 'desc' }
+            });
+          }
         }
       }
     }
@@ -869,7 +903,11 @@ router.get('/user-feed', authenticateApiKey, async (req, res, next) => {
       });
     }
     
-    res.json(articles);
+    // Add vote stats to articles
+    // Use the user ID from the email lookup if provided, otherwise use current user
+    const articlesWithVotes = await calculateVoteStats(articles, userId || currentUserId);
+    
+    res.json(articlesWithVotes);
   } catch (error) {
     next(error);
   }
@@ -880,11 +918,12 @@ router.get('/user/feed', authenticateJWT, async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
+    const userId = req.userId; // From authenticateJWT
     
     // Get user's subscriptions
     const subscriptions = await prisma.subscription.findMany({
       where: {
-        userId: req.userId,
+        userId: userId,
         isActive: true
       },
       select: {
@@ -941,18 +980,22 @@ router.get('/user/feed', authenticateJWT, async (req, res, next) => {
       orderBy: { publishedAt: 'desc' }
     });
     
-    res.json(articles);
+    // Add vote stats to articles
+    const articlesWithVotes = await calculateVoteStats(articles, userId);
+    
+    res.json(articlesWithVotes);
   } catch (error) {
     next(error);
   }
 });
 
 // Get articles by tag
-router.get('/by-tag/:tag', authenticateApiKey, async (req, res, next) => {
+router.get('/by-tag/:tag', authenticateApiKey, identifyUser, async (req, res, next) => {
   try {
     const { tag } = req.params;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
+    const userId = req.userId; // From identifyUser middleware
     
     // Decode the tag from URL
     const decodedTag = decodeURIComponent(tag);
@@ -974,6 +1017,8 @@ router.get('/by-tag/:tag', authenticateApiKey, async (req, res, next) => {
           imageUrl: true,
           categories: true,
           alertType: true,
+          slug: true,
+          voteCount: true,
           feed: {
             select: { id: true, name: true }
           }
@@ -991,8 +1036,11 @@ router.get('/by-tag/:tag', authenticateApiKey, async (req, res, next) => {
       })
     ]);
     
+    // Add vote stats to articles
+    const articlesWithVotes = await calculateVoteStats(articles, userId);
+    
     res.json({
-      articles,
+      articles: articlesWithVotes,
       tag: decodedTag,
       pagination: {
         page,
