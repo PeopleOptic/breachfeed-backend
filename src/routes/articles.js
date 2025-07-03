@@ -3,6 +3,7 @@ const { PrismaClient } = require('@prisma/client');
 const Joi = require('joi');
 const { authenticateApiKey, authenticateJWT } = require('../middleware/auth');
 const { identifyUser } = require('../middleware/userIdentification');
+const { optionalIdentifyUser } = require('../middleware/optionalUserIdentification');
 const { validateRequest } = require('../middleware/validation');
 
 const router = express.Router();
@@ -122,7 +123,7 @@ router.get('/test', authenticateApiKey, async (req, res, next) => {
 });
 
 // Search articles with filters
-router.get('/search', authenticateApiKey, identifyUser, async (req, res, next) => {
+router.get('/search', authenticateApiKey, optionalIdentifyUser, async (req, res, next) => {
   try {
     const {
       q, feedId, startDate, endDate, categories,
@@ -209,7 +210,7 @@ router.get('/search', authenticateApiKey, identifyUser, async (req, res, next) =
 });
 
 // Get popular articles (must be before /:id route)
-router.get('/popular', authenticateApiKey, identifyUser, async (req, res, next) => {
+router.get('/popular', authenticateApiKey, optionalIdentifyUser, async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
@@ -291,7 +292,7 @@ router.get('/popular', authenticateApiKey, identifyUser, async (req, res, next) 
 });
 
 // Get all articles (paginated with filtering)
-router.get('/', authenticateApiKey, identifyUser, async (req, res, next) => {
+router.get('/', authenticateApiKey, optionalIdentifyUser, async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
@@ -626,7 +627,7 @@ router.patch('/:id', authenticateApiKey, validateRequest(updateArticleSchema), a
 });
 
 // Get single article with full details
-router.get('/:identifier', authenticateApiKey, identifyUser, async (req, res, next) => {
+router.get('/:identifier', authenticateApiKey, optionalIdentifyUser, async (req, res, next) => {
   try {
     const { includeFullContent } = req.query;
     const userId = req.userId; // From identifyUser middleware
@@ -704,7 +705,7 @@ router.get('/:identifier', authenticateApiKey, identifyUser, async (req, res, ne
 });
 
 // Get articles by matched keyword
-router.get('/keyword/:keywordId', authenticateApiKey, identifyUser, async (req, res, next) => {
+router.get('/keyword/:keywordId', authenticateApiKey, optionalIdentifyUser, async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
@@ -743,7 +744,7 @@ router.get('/keyword/:keywordId', authenticateApiKey, identifyUser, async (req, 
 
 // Get articles for a specific user based on their subscriptions
 // Updated to use API key authentication for WordPress integration
-router.get('/user-feed', authenticateApiKey, identifyUser, async (req, res, next) => {
+router.get('/user-feed', authenticateApiKey, optionalIdentifyUser, async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
@@ -990,7 +991,7 @@ router.get('/user/feed', authenticateJWT, async (req, res, next) => {
 });
 
 // Get articles by tag
-router.get('/by-tag/:tag', authenticateApiKey, identifyUser, async (req, res, next) => {
+router.get('/by-tag/:tag', authenticateApiKey, optionalIdentifyUser, async (req, res, next) => {
   try {
     const { tag } = req.params;
     const page = parseInt(req.query.page) || 1;
