@@ -8,6 +8,12 @@ const { authenticateApiKey } = require('../middleware/auth');
 router.post('/sync', authenticateApiKey, async (req, res) => {
   try {
     const { agencies, keywords, locations } = req.body;
+    console.log('Sync request received:', { 
+      agenciesCount: agencies?.length || 0,
+      keywordsCount: keywords?.length || 0,
+      locationsCount: locations?.length || 0
+    });
+    
     const results = {
       agencies: { created: 0, updated: 0, errors: [] },
       keywords: { created: 0, updated: 0, errors: [] },
@@ -18,6 +24,8 @@ router.post('/sync', authenticateApiKey, async (req, res) => {
     if (agencies && Array.isArray(agencies)) {
       for (const agency of agencies) {
         try {
+          console.log('Processing agency:', agency.name);
+          
           // Check if agency already exists
           const existing = await prisma.agency.findUnique({
             where: { name: agency.name }
