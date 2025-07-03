@@ -93,27 +93,9 @@ router.get('/:id/profile', authenticateApiKey, async (req, res, next) => {
     const companyId = req.params.id;
     console.log(`Fetching company profile for ID: ${companyId}`);
     
-    // Get company details
+    // Get basic company details first (simple query)
     const company = await prisma.company.findUnique({
-      where: { id: companyId },
-      include: {
-        matchedCompanies: {
-          include: {
-            article: {
-              include: {
-                feed: {
-                  select: { name: true }
-                }
-              }
-            }
-          },
-          orderBy: {
-            article: {
-              publishedAt: 'desc'
-            }
-          }
-        }
-      }
+      where: { id: companyId }
     });
     
     if (!company) {
@@ -123,33 +105,78 @@ router.get('/:id/profile', authenticateApiKey, async (req, res, next) => {
     
     console.log(`Found company: ${company.name}`);
     
-    // Get articles that mention this company (including aliases)
-    // Handle cases where aliases might be null or undefined
+    // Get matched companies separately to avoid complex nested queries
+    let matchedCompanies = [];
+    try {
+      const matches = await prisma.matchedCompany.findMany({
+        where: { companyId: companyId },
+        orderBy: { createdAt: 'desc' },
+        take: 100 // Limit results
+      });
+      
+      // Get articles for matched companies in batches
+      const articleIds = matches.map(m => m.articleId);
+      if (articleIds.length > 0) {
+        const articles = await prisma.article.findMany({
+          where: { id: { in: articleIds } },
+          include: {
+            feed: {
+              select: { name: true }
+            }
+          }
+        });
+        
+        // Map articles to matches
+        const articleMap = new Map(articles.map(a => [a.id, a]));
+        matchedCompanies = matches.map(match => ({
+          ...match,
+          article: articleMap.get(match.articleId)
+        })).filter(m => m.article);
+      }
+    } catch (error) {
+      console.error('Error fetching matched companies:', error);
+      // Continue without matched companies if query fails
+    }
+    
+    // Get articles that mention this company (including aliases) - simplified query
     const aliases = company.aliases || [];
     const searchTerms = [company.name, ...aliases];
-    const mentionedArticles = await prisma.article.findMany({
-      where: {
-        OR: searchTerms.map(term => ({
-          OR: [
+    let mentionedArticles = [];
+    
+    try {
+      // Use simpler query without complex OR conditions
+      mentionedArticles = await prisma.article.findMany({
+        where: {
+          OR: searchTerms.flatMap(term => [
             { title: { contains: term, mode: 'insensitive' } },
-            { description: { contains: term, mode: 'insensitive' } },
-            { content: { contains: term, mode: 'insensitive' } }
-          ]
-        }))
-      },
-      include: {
-        feed: {
-          select: { name: true }
-        }
-      },
-      orderBy: { publishedAt: 'desc' },
-      take: 50 // Limit to recent mentions
-    });
+            { description: { contains: term, mode: 'insensitive' } }
+          ])
+        },
+        select: {
+          id: true,
+          title: true,
+          link: true,
+          description: true,
+          publishedAt: true,
+          severity: true,
+          categories: true,
+          feed: {
+            select: { name: true }
+          }
+        },
+        orderBy: { publishedAt: 'desc' },
+        take: 50 // Limit to recent mentions
+      });
+    } catch (error) {
+      console.error('Error fetching mentioned articles:', error);
+      // Continue without mentioned articles if query fails
+    }
     
     // Identify incident articles (articles with breach-related keywords or high severity)
-    const incidents = (company.matchedCompanies || [])
+    const incidents = matchedCompanies
       .map(match => {
         try {
+          if (!match.article) return null;
           return {
             date: match.article.publishedAt,
             title: match.article.title,
@@ -210,7 +237,7 @@ router.get('/:id/profile', authenticateApiKey, async (req, res, next) => {
     let aiProfile = null;
     try {
       const relevantArticles = [...incidents, ...recentMentions].slice(0, 10);
-      aiProfile = AIService.generateCompanyProfile(company.name, relevantArticles);
+      aiProfile = await AIService.generateCompanyProfile(company.name, relevantArticles);
       console.log(`Generated AI profile for ${company.name}:`, aiProfile);
     } catch (error) {
       console.error('Error generating AI profile:', error);
@@ -299,6 +326,7 @@ router.get('/by-name/:name', authenticateApiKey, async (req, res, next) => {
   try {
     const searchName = decodeURIComponent(req.params.name);
     
+    // Simple query to find company
     const company = await prisma.company.findFirst({
       where: {
         OR: [
@@ -313,69 +341,89 @@ router.get('/by-name/:name', authenticateApiKey, async (req, res, next) => {
       return res.status(404).json({ error: 'Company not found' });
     }
     
-    // Instead of redirect, fetch and return the profile data directly
-    // Get company details with full profile data
-    const fullCompany = await prisma.company.findUnique({
-      where: { id: company.id },
-      include: {
-        matchedCompanies: {
+    // Get matched companies separately
+    let matchedCompanies = [];
+    try {
+      const matches = await prisma.matchedCompany.findMany({
+        where: { companyId: company.id },
+        orderBy: { createdAt: 'desc' },
+        take: 100
+      });
+      
+      const articleIds = matches.map(m => m.articleId);
+      if (articleIds.length > 0) {
+        const articles = await prisma.article.findMany({
+          where: { id: { in: articleIds } },
           include: {
-            article: {
-              include: {
-                feed: {
-                  select: { name: true }
-                }
-              }
-            }
-          },
-          orderBy: {
-            article: {
-              publishedAt: 'desc'
+            feed: {
+              select: { name: true }
             }
           }
-        }
+        });
+        
+        const articleMap = new Map(articles.map(a => [a.id, a]));
+        matchedCompanies = matches.map(match => ({
+          ...match,
+          article: articleMap.get(match.articleId)
+        })).filter(m => m.article);
       }
-    });
+    } catch (error) {
+      console.error('Error fetching matched companies:', error);
+    }
     
-    // Get articles that mention this company (including aliases)
-    const searchTerms = [fullCompany.name, ...fullCompany.aliases];
-    const mentionedArticles = await prisma.article.findMany({
-      where: {
-        OR: searchTerms.map(term => ({
-          OR: [
+    // Get articles that mention this company - simplified
+    const searchTerms = [company.name, ...(company.aliases || [])];
+    let mentionedArticles = [];
+    
+    try {
+      mentionedArticles = await prisma.article.findMany({
+        where: {
+          OR: searchTerms.flatMap(term => [
             { title: { contains: term, mode: 'insensitive' } },
-            { description: { contains: term, mode: 'insensitive' } },
-            { content: { contains: term, mode: 'insensitive' } }
-          ]
-        }))
-      },
-      include: {
-        feed: {
-          select: { name: true }
-        }
-      },
-      orderBy: { publishedAt: 'desc' },
-      take: 50 // Limit to recent mentions
-    });
+            { description: { contains: term, mode: 'insensitive' } }
+          ])
+        },
+        select: {
+          id: true,
+          title: true,
+          link: true,
+          description: true,
+          publishedAt: true,
+          severity: true,
+          categories: true,
+          feed: {
+            select: { name: true }
+          }
+        },
+        orderBy: { publishedAt: 'desc' },
+        take: 50
+      });
+    } catch (error) {
+      console.error('Error fetching mentioned articles:', error);
+    }
     
     // Identify incident articles
-    const incidents = (fullCompany.matchedCompanies || [])
-      .map(match => ({
-        date: match.article.publishedAt,
-        title: match.article.title,
-        link: match.article.link,
-        description: match.article.description,
-        severity: match.article.severity,
-        source: match.article.feed.name,
-        matchContext: match.matchContext,
-        categories: match.article.categories
-      }))
+    const incidents = matchedCompanies
+      .map(match => {
+        if (!match.article) return null;
+        return {
+          date: match.article.publishedAt,
+          title: match.article.title,
+          link: match.article.link,
+          description: match.article.description,
+          severity: match.article.severity,
+          source: match.article.feed?.name || 'Unknown',
+          matchContext: match.matchContext,
+          categories: match.article.categories || []
+        };
+      })
+      .filter(Boolean)
       .filter(incident => {
         const incidentKeywords = ['breach', 'hack', 'attack', 'compromise', 'leak', 'ransomware', 'malware', 'vulnerability'];
         const hasIncidentKeyword = incidentKeywords.some(keyword => 
           incident.title.toLowerCase().includes(keyword) ||
           (incident.description && incident.description.toLowerCase().includes(keyword)) ||
-          incident.categories.some(cat => cat.toLowerCase().includes(keyword))
+          (incident.categories && Array.isArray(incident.categories) && incident.categories.some(cat => cat.toLowerCase().includes(keyword)))
         );
         return hasIncidentKeyword || ['HIGH', 'CRITICAL'].includes(incident.severity);
       });
@@ -412,7 +460,7 @@ router.get('/by-name/:name', authenticateApiKey, async (req, res, next) => {
     let aiProfile = null;
     try {
       const relevantArticles = [...incidents, ...recentMentions].slice(0, 10);
-      aiProfile = AIService.generateCompanyProfile(fullCompany.name, relevantArticles);
+      aiProfile = await AIService.generateCompanyProfile(company.name, relevantArticles);
       console.log(`Generated AI profile for ${fullCompany.name}:`, aiProfile);
     } catch (error) {
       console.error('Error generating AI profile:', error);
