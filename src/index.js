@@ -22,6 +22,7 @@ const dashboardRoutes = require('./routes/dashboard');
 const testRoutes = require('./routes/test');
 const exclusionKeywordRoutes = require('./routes/exclusionKeywords');
 const adminRoutes = require('./routes/admin');
+const syncEntityRoutes = require('./routes/sync-entities');
 
 const app = express();
 const prisma = getPrismaClient();
@@ -67,6 +68,7 @@ app.use('/api/webhooks', webhookRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/exclusion-keywords', exclusionKeywordRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/sync-entities', syncEntityRoutes);
 
 // Error handling
 app.use(errorHandler);
