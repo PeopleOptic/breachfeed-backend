@@ -118,6 +118,8 @@ router.get('/search', authenticateApiKey, async (req, res, next) => {
           recommendations: true,
           alertType: true,
           classificationConfidence: true,
+          slug: true,
+          voteCount: true,
           feed: {
             select: { id: true, name: true }
           },
@@ -181,6 +183,8 @@ router.get('/popular', authenticateApiKey, async (req, res, next) => {
           categories: true,
           summary: true,
           alertType: true,
+          slug: true,
+          voteCount: true,
           feed: {
             select: { id: true, name: true }
           },
@@ -268,6 +272,8 @@ router.get('/', authenticateApiKey, async (req, res, next) => {
           recommendations: true,
           alertType: true,
           classificationConfidence: true,
+          slug: true,
+          voteCount: true,
           feed: {
             select: { id: true, name: true }
           }
