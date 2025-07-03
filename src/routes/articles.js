@@ -5,6 +5,11 @@ const { authenticateApiKey, authenticateJWT } = require('../middleware/auth');
 const { identifyUser } = require('../middleware/userIdentification');
 const { optionalIdentifyUser } = require('../middleware/optionalUserIdentification');
 const { validateRequest } = require('../middleware/validation');
+const logger = require('../utils/logger');
+const AIService = require('../services/aiService');
+const contentFetchService = require('../services/contentFetchService');
+const { matchArticleKeywords } = require('../services/matchingService');
+const { createEntitiesFromAI, matchArticleWithAIEntities } = require('../services/enhancedMatchingService');
 
 const router = express.Router();
 const prisma = getPrismaClient();
@@ -1125,6 +1130,110 @@ router.delete('/:id', authenticateApiKey, async (req, res, next) => {
     if (error.code === 'P2025') {
       return res.status(404).json({ error: 'Article not found' });
     }
+    next(error);
+  }
+});
+
+// Regenerate AI content for an article
+router.post('/:id/regenerate-ai', authenticateApiKey, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    
+    logger.info(`Regenerating AI content for article: ${id}`);
+    
+    // Fetch the article
+    const article = await prisma.article.findUnique({
+      where: { id },
+      include: { feed: true }
+    });
+    
+    if (!article) {
+      return res.status(404).json({ error: 'Article not found' });
+    }
+    
+    // Try to fetch full content
+    let fullContentData = null;
+    const ENABLE_FULL_CONTENT_FETCH = process.env.ENABLE_FULL_CONTENT_FETCH === 'true';
+    
+    if (ENABLE_FULL_CONTENT_FETCH && contentFetchService.shouldFetchUrl(article.link)) {
+      try {
+        logger.info(`Fetching full content for: ${article.title}`);
+        fullContentData = await contentFetchService.fetchArticleContent(article.link);
+        
+        if (fullContentData && fullContentData.textContent && fullContentData.textContent.length > 1000) {
+          logger.info(`Successfully fetched ${fullContentData.textContent.length} characters of full content`);
+        }
+      } catch (fetchError) {
+        logger.warn(`Failed to fetch full content for ${article.link}:`, fetchError.message);
+      }
+    }
+    
+    // Generate AI summary
+    const aiSummaryData = await AIService.generateComprehensiveSummary(article, fullContentData);
+    
+    if (!aiSummaryData) {
+      return res.status(500).json({ error: 'Failed to generate AI summary' });
+    }
+    
+    // Update article with new AI content
+    const updatedArticle = await prisma.article.update({
+      where: { id },
+      data: {
+        summary: aiSummaryData.summary,
+        recommendations: aiSummaryData.recommendations,
+        severity: aiSummaryData.severity || article.severity,
+        alertType: aiSummaryData.alertType || article.alertType,
+        classificationConfidence: aiSummaryData.classificationConfidence || article.classificationConfidence,
+        content: fullContentData?.textContent || article.content,
+        hasFullContent: !!fullContentData?.textContent
+      }
+    });
+    
+    // Process entity extraction if AI data includes entities
+    if (aiSummaryData.aiGenerated) {
+      try {
+        // Create new entities from AI extraction if they don't exist
+        await createEntitiesFromAI(aiSummaryData);
+        
+        // Clear existing matches
+        await Promise.all([
+          prisma.matchedKeyword.deleteMany({ where: { articleId: id } }),
+          prisma.matchedCompany.deleteMany({ where: { articleId: id } }),
+          prisma.matchedAgency.deleteMany({ where: { articleId: id } }),
+          prisma.matchedLocation.deleteMany({ where: { articleId: id } })
+        ]);
+        
+        // Match using traditional keyword matching
+        const traditionalMatches = await matchArticleKeywords(updatedArticle);
+        logger.info(`Found ${traditionalMatches.length} traditional matches`);
+        
+        // Match using AI-extracted entities
+        const aiMatches = await matchArticleWithAIEntities(updatedArticle, aiSummaryData);
+        logger.info(`Found ${aiMatches.length} AI-enhanced matches`);
+        
+      } catch (matchError) {
+        logger.error('Error during entity matching:', matchError);
+        // Continue even if matching fails
+      }
+    }
+    
+    logger.info(`Successfully regenerated AI content for article: ${article.title}`);
+    
+    res.json({
+      success: true,
+      article: {
+        id: updatedArticle.id,
+        title: updatedArticle.title,
+        summary: updatedArticle.summary,
+        recommendations: updatedArticle.recommendations,
+        alertType: updatedArticle.alertType,
+        severity: updatedArticle.severity,
+        hasFullContent: updatedArticle.hasFullContent
+      }
+    });
+    
+  } catch (error) {
+    logger.error('Error regenerating AI content:', error);
     next(error);
   }
 });
