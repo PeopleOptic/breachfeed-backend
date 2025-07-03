@@ -55,8 +55,8 @@ model Article {
   updatedAt                DateTime          @updatedAt
   alertType                AlertType?        @default(SECURITY_MENTION)
   classificationConfidence Float?            @default(0.5)
-  // voteCount                Int               @default(0) // Not in production DB
-  // slug                     String?           @unique // Not in production DB
+  voteCount                Int               @default(0)
+  slug                     String?           @unique
   feed                     RssFeed           @relation(fields: [feedId], references: [id])
   incidents                Incident[]
   matchedAgencies          MatchedAgency[]
@@ -71,8 +71,8 @@ model Article {
   @@index([severity])
   @@index([location])
   @@index([alertType])
-  // @@index([voteCount]) // Not in production DB
-  // @@index([slug]) // Not in production DB
+  @@index([voteCount])
+  @@index([slug])
 }
 
 model Company {

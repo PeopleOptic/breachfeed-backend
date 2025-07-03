@@ -2,6 +2,7 @@ const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const Joi = require('joi');
 const { authenticateApiKey, authenticateJWT } = require('../middleware/auth');
+const { identifyUser } = require('../middleware/userIdentification');
 const { validateRequest } = require('../middleware/validation');
 
 const router = express.Router();
@@ -336,15 +337,11 @@ router.get('/', authenticateApiKey, async (req, res, next) => {
 });
 
 // Vote on an article
-router.post('/:id/vote', authenticateApiKey, async (req, res, next) => {
+router.post('/:id/vote', authenticateApiKey, identifyUser, async (req, res, next) => {
   try {
     const { id: articleId } = req.params;
     const { voteType } = req.body;
-    const userId = req.headers['x-user-id'];
-    
-    if (!userId) {
-      return res.status(401).json({ error: 'User ID required for voting' });
-    }
+    const userId = req.userId; // Now set by identifyUser middleware
     
     if (!['UP', 'DOWN'].includes(voteType)) {
       return res.status(400).json({ error: 'Invalid vote type. Must be UP or DOWN' });
@@ -402,7 +399,9 @@ router.post('/:id/vote', authenticateApiKey, async (req, res, next) => {
     await prisma.article.update({
       where: { id: articleId },
       data: {
-        // Skip voteCount update for now
+        voteCount: {
+          increment: voteChange
+        }
       }
     });
     
@@ -413,14 +412,10 @@ router.post('/:id/vote', authenticateApiKey, async (req, res, next) => {
 });
 
 // Remove vote from an article
-router.delete('/:id/vote', authenticateApiKey, async (req, res, next) => {
+router.delete('/:id/vote', authenticateApiKey, identifyUser, async (req, res, next) => {
   try {
     const { id: articleId } = req.params;
-    const userId = req.headers['x-user-id'];
-    
-    if (!userId) {
-      return res.status(401).json({ error: 'User ID required' });
-    }
+    const userId = req.userId; // Now set by identifyUser middleware
     
     // Find and delete vote
     const existingVote = await prisma.articleVote.findUnique({
@@ -445,7 +440,9 @@ router.delete('/:id/vote', authenticateApiKey, async (req, res, next) => {
     await prisma.article.update({
       where: { id: articleId },
       data: {
-        // Skip voteCount update for now
+        voteCount: {
+          increment: voteChange
+        }
       }
     });
     
@@ -559,8 +556,12 @@ router.get('/:identifier', authenticateApiKey, async (req, res, next) => {
     const userId = req.headers['x-user-id']; // Optional user ID for vote status
     const { identifier } = req.params;
     
-    // Use ID for now since slug doesn't exist in production
-    const whereClause = { id: identifier };
+    // Check if identifier is a valid UUID (for ID lookup) or use as slug
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const isUUID = uuidPattern.test(identifier);
+    
+    // Build where clause based on identifier type
+    const whereClause = isUUID ? { id: identifier } : { slug: identifier };
     
     // First get basic article data
     const article = await prisma.article.findFirst({
