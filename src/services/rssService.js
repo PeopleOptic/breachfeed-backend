@@ -6,6 +6,7 @@ const { matchArticleWithAIEntities, createEntitiesFromAI } = require('./enhanced
 const { queueNotifications } = require('./notificationService');
 const AIService = require('./aiService');
 const contentFetchService = require('./contentFetchService');
+const { cleanArticleContent } = require('../utils/htmlCleaner');
 
 // Content fetching configuration
 const ENABLE_FULL_CONTENT_FETCH = process.env.ENABLE_FULL_CONTENT_FETCH === 'true';
@@ -140,8 +141,9 @@ async function fetchAndProcessFeed(feed) {
         
         // Prepare initial article data
         let articleTitle = item.title || 'Untitled';
-        let articleDescription = item.contentSnippet || item.summary || '';
-        let articleContent = item.content || item['content:encoded'] || '';
+        // Clean HTML from description and content
+        let articleDescription = cleanArticleContent(item.contentSnippet || item.summary || item.description || '');
+        let articleContent = cleanArticleContent(item.content || item['content:encoded'] || '');
         let hasFullContent = false;
         let fullContentData = null;
         
