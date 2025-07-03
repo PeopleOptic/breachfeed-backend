@@ -4,6 +4,10 @@ const logger = require('../utils/logger');
 const { matchArticleKeywords } = require('./matchingService');
 const { queueNotifications } = require('./notificationService');
 const AIService = require('./aiService');
+const contentFetchService = require('./contentFetchService');
+
+// Content fetching configuration
+const ENABLE_FULL_CONTENT_FETCH = process.env.ENABLE_FULL_CONTENT_FETCH === 'true';
 
 const parser = new Parser({
   timeout: 10000,
@@ -168,6 +172,38 @@ async function fetchAndProcessFeed(feed) {
         
         newArticles++;
         logger.info(`Successfully created article: ${article.title} (ID: ${article.id})`);
+        
+        // Try to fetch full content and generate comprehensive summary
+        try {
+          // Check if content fetching is enabled and should be done for this URL
+          if (ENABLE_FULL_CONTENT_FETCH && contentFetchService.shouldFetchUrl(article.link)) {
+            logger.info(`Attempting to fetch full content for: ${article.title}`);
+            
+            const fullContent = await contentFetchService.fetchArticleContent(article.link);
+            
+            if (fullContent && fullContent.textContent && fullContent.textContent.length > 1000) {
+              // Generate comprehensive summary from full content
+              const comprehensiveSummary = await AIService.generateComprehensiveSummary(article, fullContent);
+              
+              if (comprehensiveSummary && comprehensiveSummary.length > article.content.length) {
+                // Update article with enhanced summary
+                await prisma.article.update({
+                  where: { id: article.id },
+                  data: {
+                    content: comprehensiveSummary,
+                    hasFullContent: true
+                  }
+                });
+                logger.info(`Updated article ${article.id} with comprehensive AI summary (${comprehensiveSummary.length} chars)`);
+              }
+            } else {
+              logger.info(`Could not fetch sufficient full content for article ${article.id}`);
+            }
+          }
+        } catch (fetchError) {
+          logger.warn(`Failed to fetch/process full content for article ${article.id}:`, fetchError.message);
+          // Continue with normal processing even if content fetch fails
+        }
         
         // Match keywords and companies (skip if no entities exist)
         try {

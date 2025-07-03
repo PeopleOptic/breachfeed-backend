@@ -10,6 +10,284 @@ const prisma = new PrismaClient();
 class AIService {
   
   /**
+   * Generate comprehensive summary from full article content
+   * This method is specifically for when we have the full article text
+   */
+  static async generateComprehensiveSummary(article, fullContent) {
+    try {
+      logger.info(`Generating comprehensive summary for article: ${article.title}`);
+      
+      // Use full content if available, otherwise fall back to RSS content
+      const contentToAnalyze = fullContent?.textContent || `${article.title} ${article.description} ${article.content}`;
+      
+      // If we have substantial full content, create a more detailed summary
+      if (fullContent?.textContent && fullContent.textContent.length > 1000) {
+        return this.createEnhancedSummary(article, fullContent, contentToAnalyze);
+      }
+      
+      // Fall back to regular summary generation
+      return this.generateIncidentSummary(article);
+      
+    } catch (error) {
+      logger.error('Error generating comprehensive summary:', error);
+      return this.generateIncidentSummary(article); // Fallback
+    }
+  }
+  
+  /**
+   * Create enhanced summary from full article content
+   */
+  static createEnhancedSummary(article, fullContent, contentText) {
+    const content = contentText.toLowerCase();
+    
+    // Extract more detailed information from full content
+    const alertClassification = this.classifyAlertType(content, article);
+    const incidentType = this.detectIncidentType(content);
+    const severity = this.assessSeverity(content);
+    const affectedEntities = this.extractAffectedEntities(content);
+    
+    // Extract key facts from the full article
+    const keyFacts = this.extractKeyFacts(contentText);
+    const timeline = this.extractTimeline(contentText);
+    const impact = this.extractImpact(contentText);
+    const technicalDetails = this.extractTechnicalDetails(contentText);
+    
+    // Create comprehensive summary
+    let summary = '';
+    
+    // Alert header
+    const alertPrefixes = {
+      'CONFIRMED_BREACH': '🚨 CONFIRMED BREACH: ',
+      'INCIDENT': '⚠️ ACTIVE INCIDENT: ',
+      'MENTION': 'ℹ️ SECURITY UPDATE: '
+    };
+    summary += alertPrefixes[alertClassification.alertType] || '';
+    
+    // Main incident description
+    summary += `${article.title}\n\n`;
+    
+    // Key facts section
+    if (keyFacts.length > 0) {
+      summary += 'KEY FACTS:\n';
+      keyFacts.forEach(fact => {
+        summary += `• ${fact}\n`;
+      });
+      summary += '\n';
+    }
+    
+    // Timeline if available
+    if (timeline.length > 0) {
+      summary += 'TIMELINE:\n';
+      timeline.forEach(event => {
+        summary += `• ${event}\n`;
+      });
+      summary += '\n';
+    }
+    
+    // Impact assessment
+    if (impact.length > 0) {
+      summary += 'IMPACT:\n';
+      impact.forEach(item => {
+        summary += `• ${item}\n`;
+      });
+      summary += '\n';
+    }
+    
+    // Technical details for high severity incidents
+    if (severity === 'CRITICAL' || severity === 'HIGH') {
+      if (technicalDetails.length > 0) {
+        summary += 'TECHNICAL DETAILS:\n';
+        technicalDetails.forEach(detail => {
+          summary += `• ${detail}\n`;
+        });
+      }
+    }
+    
+    // Generate enhanced recommendations
+    const recommendations = this.generateEnhancedRecommendations(
+      incidentType, 
+      severity, 
+      alertClassification.alertType,
+      keyFacts,
+      technicalDetails
+    );
+    
+    return {
+      summary: summary.trim(),
+      recommendations,
+      incidentType,
+      severity,
+      affectedEntities,
+      alertType: alertClassification.alertType,
+      classificationConfidence: alertClassification.confidence,
+      keyFacts,
+      timeline,
+      impact,
+      technicalDetails,
+      contentLength: contentText.length,
+      isComprehensive: true
+    };
+  }
+  
+  /**
+   * Extract key facts from article content
+   */
+  static extractKeyFacts(content) {
+    const facts = [];
+    const lines = content.split(/[.\n]/);
+    
+    // Patterns that indicate key facts
+    const factPatterns = [
+      /(\d+)\s*(million|thousand|hundred)\s*(users?|customers?|accounts?|records?)/i,
+      /affected\s*(.*?)(?:were|was|have been)/i,
+      /compromised\s*(.*?)(?:were|was|have been)/i,
+      /stolen\s*(.*?)(?:were|was|have been)/i,
+      /exposed\s*(.*?)(?:were|was|have been)/i,
+      /vulnerability\s*(?:in|affecting)\s*(.*?)(?:allows|could|can)/i,
+      /attack(?:ers?)?\s*(?:used|exploited|leveraged)\s*(.*?)to/i,
+      /(?:cost|damage|loss).*?\$[\d,]+/i,
+      /(?:since|from|between).*?(?:january|february|march|april|may|june|july|august|september|october|november|december|\d{4})/i
+    ];
+    
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      if (trimmed.length > 20 && trimmed.length < 200) {
+        for (const pattern of factPatterns) {
+          if (pattern.test(trimmed)) {
+            facts.push(trimmed);
+            break;
+          }
+        }
+      }
+    });
+    
+    // Remove duplicates and limit to top 5 facts
+    return [...new Set(facts)].slice(0, 5);
+  }
+  
+  /**
+   * Extract timeline information
+   */
+  static extractTimeline(content) {
+    const timeline = [];
+    const lines = content.split(/[.\n]/);
+    
+    // Patterns for timeline events
+    const timePatterns = [
+      /(?:on|at)\s*(?:january|february|march|april|may|june|july|august|september|october|november|december)\s*\d{1,2}/i,
+      /(?:on|at)\s*\d{1,2}\/\d{1,2}\/\d{2,4}/,
+      /(?:yesterday|today|last\s*week|last\s*month)/i,
+      /\d{1,2}:\d{2}\s*(?:am|pm|utc|est|pst)/i,
+      /(?:first|initially|subsequently|then|after|finally)/i
+    ];
+    
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      for (const pattern of timePatterns) {
+        if (pattern.test(trimmed) && trimmed.length < 150) {
+          timeline.push(trimmed);
+          break;
+        }
+      }
+    });
+    
+    return timeline.slice(0, 4);
+  }
+  
+  /**
+   * Extract impact information
+   */
+  static extractImpact(content) {
+    const impacts = [];
+    const lines = content.split(/[.\n]/);
+    
+    // Impact indicators
+    const impactPatterns = [
+      /(?:resulted in|led to|caused)\s*(.*)/i,
+      /(?:impact|affect|disrupted)\s*(.*)/i,
+      /(?:down|offline|unavailable)\s*(?:for|since)\s*(.*)/i,
+      /(?:lost|stolen|compromised)\s*(?:data|information|credentials)/i,
+      /(?:financial|economic)\s*(?:loss|damage|impact)/i,
+      /(?:reputation|trust|confidence)\s*(?:damage|loss|impact)/i
+    ];
+    
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      for (const pattern of impactPatterns) {
+        if (pattern.test(trimmed) && trimmed.length < 150) {
+          impacts.push(trimmed);
+          break;
+        }
+      }
+    });
+    
+    return [...new Set(impacts)].slice(0, 3);
+  }
+  
+  /**
+   * Extract technical details
+   */
+  static extractTechnicalDetails(content) {
+    const details = [];
+    const lines = content.split(/[.\n]/);
+    
+    // Technical indicators
+    const techPatterns = [
+      /CVE-\d{4}-\d+/i,
+      /(?:exploit|vulnerability|flaw)\s*(?:in|affecting)\s*(.*?)(?:allows|could)/i,
+      /(?:malware|trojan|virus|ransomware)\s*(?:named|called|known as)\s*(.*?)(?:was|has)/i,
+      /(?:port|protocol|service)\s*\d+/i,
+      /(?:version|versions?)\s*(?:\d+\.?)+/i,
+      /(?:patch|update|fix)\s*(?:available|released)/i,
+      /(?:authentication|authorization|encryption)/i,
+      /(?:sql injection|xss|csrf|rce|lfi)/i
+    ];
+    
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      for (const pattern of techPatterns) {
+        if (pattern.test(trimmed) && trimmed.length < 200) {
+          details.push(trimmed);
+          break;
+        }
+      }
+    });
+    
+    return [...new Set(details)].slice(0, 4);
+  }
+  
+  /**
+   * Generate enhanced recommendations based on comprehensive analysis
+   */
+  static generateEnhancedRecommendations(incidentType, severity, alertType, keyFacts, technicalDetails) {
+    let recommendations = [];
+    
+    // Base recommendations from regular method
+    const baseRecs = this.generateRecommendations(incidentType, severity, alertType);
+    recommendations.push(baseRecs);
+    
+    // Add specific recommendations based on technical details
+    if (technicalDetails.some(detail => /cve-\d{4}-\d+/i.test(detail))) {
+      recommendations.push('\n🔧 PATCHING PRIORITY:\n• Check if this CVE affects your systems\n• Apply vendor patches immediately if available\n• Implement compensating controls if patches are not yet available');
+    }
+    
+    if (technicalDetails.some(detail => /(?:port|service)\s*\d+/i.test(detail))) {
+      recommendations.push('\n🔒 NETWORK SECURITY:\n• Review firewall rules for mentioned ports/services\n• Ensure unnecessary services are disabled\n• Monitor network traffic for suspicious activity');
+    }
+    
+    if (keyFacts.some(fact => /(?:million|thousand)\s*(?:users?|customers?|accounts?)/i.test(fact))) {
+      recommendations.push('\n👥 CUSTOMER COMMUNICATION:\n• Prepare customer notification if your users might be affected\n• Review and update privacy incident response procedures\n• Consider offering identity protection services if applicable');
+    }
+    
+    // Severity-based urgent actions
+    if (severity === 'CRITICAL' && alertType === 'CONFIRMED_BREACH') {
+      recommendations.push('\n🚨 IMMEDIATE ACTIONS REQUIRED:\n• Activate incident response team immediately\n• Isolate affected systems\n• Preserve evidence for forensics\n• Notify legal and compliance teams\n• Begin breach notification timeline tracking');
+    }
+    
+    return recommendations.join('\n\n');
+  }
+  
+  /**
    * Generate incident summary from article content
    */
   static async generateIncidentSummary(article) {

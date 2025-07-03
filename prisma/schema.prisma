@@ -58,6 +58,7 @@ model Article {
   classificationConfidence Float?            @default(0.5)
   voteCount                Int               @default(0)
   slug                     String?           @unique
+  hasFullContent           Boolean           @default(false)
   feed                     RssFeed           @relation(fields: [feedId], references: [id])
   incidents                Incident[]
   matchedAgencies          MatchedAgency[]
