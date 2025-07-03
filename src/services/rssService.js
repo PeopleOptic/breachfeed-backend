@@ -137,83 +137,102 @@ async function fetchAndProcessFeed(feed) {
           }
         }
         
-        // Create temporary article object for AI tag generation
-        const tempArticle = {
-          title: item.title || 'Untitled',
-          description: item.contentSnippet || item.summary || '',
-          content: item.content || item['content:encoded'] || ''
+        // Prepare initial article data
+        let articleTitle = item.title || 'Untitled';
+        let articleDescription = item.contentSnippet || item.summary || '';
+        let articleContent = item.content || item['content:encoded'] || '';
+        let hasFullContent = false;
+        let fullContentData = null;
+        
+        // Try to fetch full content BEFORE creating the article
+        if (ENABLE_FULL_CONTENT_FETCH && contentFetchService.shouldFetchUrl(item.link)) {
+          try {
+            logger.info(`Fetching full content for: ${articleTitle}`);
+            
+            fullContentData = await contentFetchService.fetchArticleContent(item.link);
+            
+            if (fullContentData && fullContentData.textContent && fullContentData.textContent.length > 1000) {
+              logger.info(`Successfully fetched ${fullContentData.textContent.length} characters of full content`);
+              hasFullContent = true;
+            } else {
+              logger.info(`Insufficient full content fetched (${fullContentData?.textContent?.length || 0} chars)`);
+            }
+          } catch (fetchError) {
+            logger.warn(`Failed to fetch full content for ${item.link}:`, fetchError.message);
+          }
+        }
+        
+        // Create article object for AI processing
+        const articleForAI = {
+          title: articleTitle,
+          description: articleDescription,
+          content: hasFullContent ? fullContentData.textContent : articleContent,
+          link: item.link
         };
         
-        // Generate AI tags
+        // Generate AI summary and classification
+        let aiSummaryData = null;
+        try {
+          if (hasFullContent) {
+            // Use comprehensive summary for full content
+            aiSummaryData = await AIService.generateComprehensiveSummary(articleForAI, fullContentData);
+            if (typeof aiSummaryData === 'string') {
+              // If it returns just a string, use it as content
+              articleContent = aiSummaryData;
+            }
+          } else {
+            // Use regular summary generation
+            aiSummaryData = await AIService.generateIncidentSummary(articleForAI);
+          }
+        } catch (aiError) {
+          logger.error(`Failed to generate AI summary for ${articleTitle}:`, aiError);
+        }
+        
+        // Generate AI tags based on full content if available
         let aiTags = [];
         try {
-          aiTags = AIService.generateTags(tempArticle);
-          logger.info(`Generated ${aiTags.length} AI tags for article: ${tempArticle.title}`);
+          aiTags = AIService.generateTags(articleForAI);
+          logger.info(`Generated ${aiTags.length} AI tags for article: ${articleTitle}`);
         } catch (tagError) {
-          logger.warn(`Failed to generate AI tags for article ${tempArticle.title}:`, tagError);
+          logger.warn(`Failed to generate AI tags for article ${articleTitle}:`, tagError);
           aiTags = ['cybersecurity']; // fallback
         }
         
         // Combine original RSS categories with AI-generated tags
         const categories = [...new Set([...originalCategories, ...aiTags])];
         
-        // Log article data for debugging
-        logger.info(`Creating article: ${item.title} from ${feed.name}${imageUrl ? ` with image: ${imageUrl}` : ''} with ${categories.length} tags`);
-        
         // Generate slug from title
-        const slug = generateSlug(item.title || 'Untitled');
+        const slug = generateSlug(articleTitle);
         
-        // Create new article
+        // Log article data for debugging
+        logger.info(`Creating article: ${articleTitle} from ${feed.name}${imageUrl ? ` with image: ${imageUrl}` : ''} with ${categories.length} tags${hasFullContent ? ' (with full content)' : ''}`);
+        
+        // Create new article with all the enhanced data
         const article = await prisma.article.create({
           data: {
             feedId: feed.id,
-            title: item.title || 'Untitled',
+            title: articleTitle,
             link: item.link,
             slug,
-            description: item.contentSnippet || item.summary || '',
-            content: item.content || item['content:encoded'] || '',
+            description: articleDescription,
+            content: articleContent,
             author: item.creator || item.author || null,
             publishedAt,
             guid: item.guid || item.link,
             categories,
-            imageUrl
+            imageUrl,
+            hasFullContent,
+            // Add AI-generated data if available
+            summary: aiSummaryData?.summary || null,
+            recommendations: aiSummaryData?.recommendations || null,
+            severity: aiSummaryData?.severity || 'MEDIUM',
+            alertType: aiSummaryData?.alertType || 'SECURITY_MENTION',
+            classificationConfidence: aiSummaryData?.classificationConfidence || 0.5
           }
         });
         
         newArticles++;
-        logger.info(`Successfully created article: ${article.title} (ID: ${article.id})`);
-        
-        // Try to fetch full content and generate comprehensive summary
-        try {
-          // Check if content fetching is enabled and should be done for this URL
-          if (ENABLE_FULL_CONTENT_FETCH && contentFetchService.shouldFetchUrl(article.link)) {
-            logger.info(`Attempting to fetch full content for: ${article.title}`);
-            
-            const fullContent = await contentFetchService.fetchArticleContent(article.link);
-            
-            if (fullContent && fullContent.textContent && fullContent.textContent.length > 1000) {
-              // Generate comprehensive summary from full content
-              const comprehensiveSummary = await AIService.generateComprehensiveSummary(article, fullContent);
-              
-              if (comprehensiveSummary && comprehensiveSummary.length > article.content.length) {
-                // Update article with enhanced summary
-                await prisma.article.update({
-                  where: { id: article.id },
-                  data: {
-                    content: comprehensiveSummary,
-                    hasFullContent: true
-                  }
-                });
-                logger.info(`Updated article ${article.id} with comprehensive AI summary (${comprehensiveSummary.length} chars)`);
-              }
-            } else {
-              logger.info(`Could not fetch sufficient full content for article ${article.id}`);
-            }
-          }
-        } catch (fetchError) {
-          logger.warn(`Failed to fetch/process full content for article ${article.id}:`, fetchError.message);
-          // Continue with normal processing even if content fetch fails
-        }
+        logger.info(`Successfully created article: ${article.title} (ID: ${article.id}) with ${hasFullContent ? 'full' : 'RSS'} content`);
         
         // Match keywords and companies (skip if no entities exist)
         try {

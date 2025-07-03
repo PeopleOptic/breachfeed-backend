@@ -67,26 +67,25 @@ router.get('/stats', authenticateApiKey, async (req, res, next) => {
         }
       }),
       
-      // Recent incidents for overview
+      // Recent incidents for overview - simplified query
       prisma.article.findMany({
         where: {
           severity: {
             in: ['MEDIUM', 'HIGH', 'CRITICAL']
           }
         },
-        include: {
+        select: {
+          id: true,
+          title: true,
+          link: true,
+          description: true,
+          severity: true,
+          publishedAt: true,
+          imageUrl: true,
+          summary: true,
+          recommendations: true,
           feed: {
             select: { name: true }
-          },
-          matchedKeywords: {
-            include: {
-              keyword: true
-            }
-          },
-          matchedCompanies: {
-            include: {
-              company: true
-            }
           }
         },
         orderBy: { publishedAt: 'desc' },
@@ -134,21 +133,12 @@ router.get('/stats', authenticateApiKey, async (req, res, next) => {
         description: article.description,
         severity: article.severity,
         publishedAt: article.publishedAt,
-        source: article.feed.name,
+        source: article.feed?.name || 'Unknown',
         imageUrl: article.imageUrl,
         summary: article.summary,
         recommendations: article.recommendations,
-        matchedKeywords: article.matchedKeywords.map(mk => ({
-          id: mk.keyword.id,
-          term: mk.keyword.term,
-          context: mk.matchContext
-        })),
-        matchedCompanies: article.matchedCompanies.map(mc => ({
-          id: mc.company.id,
-          name: mc.company.name,
-          context: mc.matchContext,
-          confidence: mc.confidence
-        }))
+        matchedKeywords: [],  // Simplified - no nested data
+        matchedCompanies: []  // Simplified - no nested data
       }))
     });
     

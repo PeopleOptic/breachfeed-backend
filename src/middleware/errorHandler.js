@@ -2,6 +2,13 @@ const logger = require('../utils/logger');
 
 function errorHandler(err, req, res, next) {
   logger.error('Error:', err);
+  logger.error('Error details:', {
+    message: err.message,
+    code: err.code,
+    meta: err.meta,
+    path: req.path,
+    method: req.method
+  });
   
   // Prisma errors
   if (err.code === 'P2002') {
