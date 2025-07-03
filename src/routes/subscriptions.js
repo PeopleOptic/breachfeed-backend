@@ -4,6 +4,7 @@ const Joi = require('joi');
 const jwt = require('jsonwebtoken');
 const { authenticateJWT, authenticateApiKey } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/validation');
+const logger = require('../utils/logger');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -604,13 +605,17 @@ router.get('/debug/entity/:type/:id', authenticateApiKey, async (req, res, next)
 // Manage companies
 router.get('/companies', authenticateApiKey, async (req, res, next) => {
   try {
+    logger.info('Fetching companies for API key:', req.apiKeyDetails?.apiKey);
+    
     const companies = await prisma.company.findMany({
       where: { isActive: true },
       orderBy: { name: 'asc' }
     });
     
+    logger.info(`Found ${companies.length} active companies`);
     res.json(companies);
   } catch (error) {
+    logger.error('Error fetching companies:', error);
     next(error);
   }
 });
@@ -689,13 +694,17 @@ router.delete('/companies/:id', authenticateApiKey, async (req, res, next) => {
 // Manage keywords
 router.get('/keywords', authenticateApiKey, async (req, res, next) => {
   try {
+    logger.info('Fetching keywords for API key:', req.apiKeyDetails?.apiKey);
+    
     const keywords = await prisma.keyword.findMany({
       where: { isActive: true },
       orderBy: { term: 'asc' }
     });
     
+    logger.info(`Found ${keywords.length} active keywords`);
     res.json(keywords);
   } catch (error) {
+    logger.error('Error fetching keywords:', error);
     next(error);
   }
 });
