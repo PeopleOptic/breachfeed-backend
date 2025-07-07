@@ -4,6 +4,15 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const { authenticateApiKey } = require('../middleware/auth');
 
+// Helper function to generate slug from text
+function generateSlug(text) {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .substring(0, 100); // Limit slug length
+}
+
 // Sync entities from WordPress
 router.post('/sync', authenticateApiKey, async (req, res) => {
   try {
@@ -39,6 +48,7 @@ router.post('/sync', authenticateApiKey, async (req, res) => {
                 isActive: agency.isActive ?? true,
                 acronym: agency.acronym || null,
                 type: agency.type || 'GOVERNMENT',
+                slug: existing.slug || generateSlug(agency.name),
                 updatedAt: new Date()
               }
             });
@@ -51,6 +61,7 @@ router.post('/sync', authenticateApiKey, async (req, res) => {
                 acronym: agency.acronym || null,
                 country: agency.country || 'US',
                 type: agency.type || 'GOVERNMENT',
+                slug: generateSlug(agency.name),
                 isActive: agency.isActive ?? true
               }
             });
@@ -81,6 +92,7 @@ router.post('/sync', authenticateApiKey, async (req, res) => {
               where: { id: existing.id },
               data: {
                 category: keyword.category || existing.category,
+                slug: existing.slug || generateSlug(keyword.term),
                 isActive: keyword.isActive ?? true,
                 updatedAt: new Date()
               }
@@ -92,6 +104,7 @@ router.post('/sync', authenticateApiKey, async (req, res) => {
               data: {
                 term: keyword.term,
                 category: keyword.category || null,
+                slug: generateSlug(keyword.term),
                 isActive: keyword.isActive ?? true
               }
             });
@@ -125,6 +138,7 @@ router.post('/sync', authenticateApiKey, async (req, res) => {
                 region: location.region || existing.region,
                 city: location.city || existing.city,
                 coordinates: location.coordinates || existing.coordinates,
+                slug: existing.slug || generateSlug(location.name),
                 isActive: location.isActive ?? true,
                 updatedAt: new Date()
               }
@@ -139,6 +153,7 @@ router.post('/sync', authenticateApiKey, async (req, res) => {
                 region: location.region || null,
                 city: location.city || null,
                 coordinates: location.coordinates || null,
+                slug: generateSlug(location.name),
                 isActive: location.isActive ?? true
               }
             });

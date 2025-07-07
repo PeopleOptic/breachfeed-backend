@@ -87,6 +87,93 @@ router.get('/', authenticateApiKey, async (req, res, next) => {
   }
 });
 
+// Get company by slug/name
+router.get('/slug/:slug', authenticateApiKey, async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    console.log(`Fetching company by slug: ${slug}`);
+    
+    // Try to find by name (companies don't have slug field yet)
+    let company = await prisma.company.findFirst({
+      where: { 
+        name: {
+          equals: slug.replace(/-/g, ' '),
+          mode: 'insensitive'
+        }
+      }
+    });
+    
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+    
+    // Get related articles mentioning this company
+    const articles = await prisma.article.findMany({
+      where: {
+        companies: {
+          some: {
+            id: company.id
+          }
+        }
+      },
+      include: {
+        feed: {
+          select: {
+            id: true,
+            name: true,
+            url: true
+          }
+        }
+      },
+      orderBy: { publishedAt: 'desc' },
+      take: 50
+    });
+    
+    // Get AI profile if available
+    const aiService = new AIService();
+    const aiProfile = await aiService.getCompanyProfile(company.name);
+    
+    // Calculate incident stats
+    const incidents = articles.filter(a => 
+      a.severity === 'CRITICAL' || 
+      a.severity === 'HIGH' ||
+      a.alertType === 'CONFIRMED_BREACH' ||
+      a.alertType === 'SECURITY_INCIDENT'
+    );
+    
+    const incidentStats = {
+      bySeverity: {
+        critical: incidents.filter(a => a.severity === 'CRITICAL').length,
+        high: incidents.filter(a => a.severity === 'HIGH').length,
+        medium: incidents.filter(a => a.severity === 'MEDIUM').length,
+        low: incidents.filter(a => a.severity === 'LOW').length
+      },
+      lastIncident: incidents.length > 0 ? incidents[0].publishedAt : null
+    };
+    
+    res.json({
+      company,
+      articles,
+      aiProfile,
+      incidents: incidents.map(article => ({
+        id: article.id,
+        title: article.title,
+        description: article.description,
+        link: article.link,
+        date: article.publishedAt,
+        severity: article.severity,
+        source: article.feed.name,
+        categories: article.categories
+      })),
+      incidentStats,
+      recentMentions: articles.slice(0, 20)
+    });
+  } catch (error) {
+    console.error('Error fetching company by slug:', error);
+    next(error);
+  }
+});
+
 // Get company profile with incident history
 router.get('/:id/profile', authenticateApiKey, async (req, res, next) => {
   try {

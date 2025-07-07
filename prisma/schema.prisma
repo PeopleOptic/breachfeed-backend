@@ -99,6 +99,7 @@ model Company {
 model Keyword {
   id              String           @id @default(cuid())
   term            String           @unique
+  slug            String?          @unique
   category        String?
   isActive        Boolean          @default(true)
   createdAt       DateTime         @default(now())
@@ -186,6 +187,7 @@ model Notification {
 model Agency {
   id              String          @id @default(cuid())
   name            String          @unique
+  slug            String?         @unique
   country         String          @default("US")
   isActive        Boolean         @default(true)
   createdAt       DateTime        @default(now())
@@ -199,6 +201,7 @@ model Agency {
 model Location {
   id               String            @id @default(cuid())
   name             String            @unique
+  slug             String?           @unique
   country          String
   region           String?
   coordinates      String?
