@@ -173,22 +173,33 @@ async function fetchAndProcessFeed(feed) {
           link: item.link
         };
         
-        // Generate AI summary and classification
+        // Generate AI summary and classification for ALL articles
         let aiSummaryData = null;
         try {
-          if (hasFullContent) {
-            // Use comprehensive summary for full content
+          // Always attempt to use AI summarization
+          if (hasFullContent && fullContentData) {
+            // Use comprehensive summary when we have full content
+            logger.info(`Generating AI summary with full content (${fullContentData.textContent.length} chars) for: ${articleTitle}`);
             aiSummaryData = await AIService.generateComprehensiveSummary(articleForAI, fullContentData);
-            if (typeof aiSummaryData === 'string') {
-              // If it returns just a string, use it as content
-              articleContent = aiSummaryData;
-            }
           } else {
-            // Use regular summary generation
-            aiSummaryData = await AIService.generateIncidentSummary(articleForAI);
+            // Use AI summary even without full content - Claude can work with RSS data
+            logger.info(`Generating AI summary from RSS content for: ${articleTitle}`);
+            // Enhance the article data with whatever content we have
+            const enhancedArticle = {
+              ...articleForAI,
+              content: articleContent || articleDescription || articleTitle,
+              hasFullContent: false
+            };
+            aiSummaryData = await AIService.generateIncidentSummary(enhancedArticle);
+          }
+          
+          if (typeof aiSummaryData === 'string') {
+            // If it returns just a string, use it as content
+            articleContent = aiSummaryData;
           }
         } catch (aiError) {
           logger.error(`Failed to generate AI summary for ${articleTitle}:`, aiError);
+          // Even on error, continue processing the article
         }
         
         // Generate AI tags based on full content if available

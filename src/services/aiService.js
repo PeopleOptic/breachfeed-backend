@@ -33,9 +33,11 @@ class AIService {
       // Use full content if available, otherwise fall back to RSS content
       const contentToAnalyze = fullContent?.textContent || `${article.title} ${article.description} ${article.content}`;
       
-      // If we have Anthropic API configured and substantial content, use real AI
-      if (anthropicClient && contentToAnalyze.length > 500) {
+      // If we have Anthropic API configured, always use real AI
+      // Remove content length restriction to ensure all articles get AI summaries
+      if (anthropicClient) {
         try {
+          logger.info(`Using Claude AI for article summary (content length: ${contentToAnalyze.length} chars)`);
           const aiSummary = await this.generateAISummary(article, contentToAnalyze);
           if (aiSummary) {
             return aiSummary;
@@ -484,9 +486,10 @@ Format your response as JSON with these exact fields:
     try {
       const content = `${article.title} ${article.description} ${article.content}`;
       
-      // Try AI summary first if available
-      if (anthropicClient && content.length > 300) {
+      // Try AI summary first if available - always use AI regardless of content length
+      if (anthropicClient) {
         try {
+          logger.info(`Using Claude AI for incident summary (content length: ${content.length} chars)`);
           const aiSummary = await this.generateAISummary(article, content);
           if (aiSummary) {
             return aiSummary;

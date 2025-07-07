@@ -647,6 +647,111 @@ router.patch('/:id', authenticateApiKey, validateRequest(updateArticleSchema), a
   }
 });
 
+// Summarize article on demand
+router.post('/:id/summarize', authenticateApiKey, identifyUser, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    
+    // Get the article
+    const article = await prisma.article.findUnique({
+      where: { id },
+      include: {
+        feed: true
+      }
+    });
+    
+    if (!article) {
+      return res.status(404).json({ error: 'Article not found' });
+    }
+    
+    // Check if article already has AI summary from full content
+    if (article.summary && article.hasFullContent) {
+      return res.json({
+        message: 'Article already has AI summary from full content',
+        summary: article.summary,
+        recommendations: article.recommendations,
+        hasFullContent: article.hasFullContent,
+        severity: article.severity,
+        alertType: article.alertType
+      });
+    }
+    
+    logger.info(`On-demand summarization requested for article: ${article.title}`);
+    
+    // Fetch full content from source URL
+    let fullContent = null;
+    let hasFullContent = false;
+    
+    try {
+      fullContent = await contentFetchService.fetchArticleContent(article.link);
+      if (fullContent && fullContent.textContent && fullContent.textContent.length > 500) {
+        hasFullContent = true;
+        logger.info(`Fetched ${fullContent.textContent.length} characters for on-demand summary`);
+      }
+    } catch (fetchError) {
+      logger.error(`Failed to fetch content for on-demand summary: ${fetchError.message}`);
+      return res.status(400).json({ 
+        error: 'Failed to fetch article content',
+        message: 'Could not retrieve the full article from the source URL'
+      });
+    }
+    
+    // Generate AI summary
+    let aiSummaryData;
+    const articleForAI = {
+      title: article.title,
+      description: article.description,
+      content: hasFullContent ? fullContent.textContent : article.content,
+      link: article.link,
+      publishedAt: article.publishedAt
+    };
+    
+    try {
+      if (hasFullContent) {
+        aiSummaryData = await AIService.generateComprehensiveSummary(articleForAI, fullContent);
+      } else {
+        aiSummaryData = await AIService.generateIncidentSummary(articleForAI);
+      }
+    } catch (aiError) {
+      logger.error(`AI summary generation failed: ${aiError.message}`);
+      return res.status(500).json({ 
+        error: 'AI summary generation failed',
+        message: 'Could not generate AI summary for this article'
+      });
+    }
+    
+    // Update article with new summary
+    const updatedArticle = await prisma.article.update({
+      where: { id },
+      data: {
+        summary: aiSummaryData.summary || article.summary,
+        recommendations: aiSummaryData.recommendations || article.recommendations,
+        severity: aiSummaryData.severity || article.severity,
+        alertType: aiSummaryData.alertType || article.alertType,
+        classificationConfidence: aiSummaryData.classificationConfidence || article.classificationConfidence,
+        hasFullContent: hasFullContent,
+        content: hasFullContent && fullContent.textContent ? fullContent.textContent : article.content
+      }
+    });
+    
+    logger.info(`Successfully generated on-demand summary for article ${id}`);
+    
+    res.json({
+      message: 'Summary generated successfully',
+      summary: updatedArticle.summary,
+      recommendations: updatedArticle.recommendations,
+      severity: updatedArticle.severity,
+      alertType: updatedArticle.alertType,
+      hasFullContent: updatedArticle.hasFullContent,
+      aiGenerated: aiSummaryData.aiGenerated || false
+    });
+    
+  } catch (error) {
+    logger.error('Error generating on-demand summary:', error);
+    next(error);
+  }
+});
+
 // Get single article with full details
 router.get('/:identifier', authenticateApiKey, optionalIdentifyUser, async (req, res, next) => {
   try {
