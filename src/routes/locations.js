@@ -60,9 +60,9 @@ router.get('/slug/:slug', authenticateApiKey, async (req, res, next) => {
     // Get related articles
     const articles = await prisma.article.findMany({
       where: {
-        locations: {
+        matchedLocations: {
           some: {
-            id: location.id
+            locationId: location.id
           }
         }
       },
@@ -74,10 +74,14 @@ router.get('/slug/:slug', authenticateApiKey, async (req, res, next) => {
             url: true
           }
         },
-        companies: {
-          select: {
-            id: true,
-            name: true
+        matchedCompanies: {
+          include: {
+            company: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
           }
         }
       },
@@ -95,9 +99,16 @@ router.get('/slug/:slug', authenticateApiKey, async (req, res, next) => {
       ).length
     };
     
+    // Format articles to flatten companies
+    const formattedArticles = articles.map(article => ({
+      ...article,
+      companies: article.matchedCompanies.map(mc => mc.company),
+      matchedCompanies: undefined
+    }));
+    
     res.json({
       location,
-      articles,
+      articles: formattedArticles,
       stats
     });
   } catch (error) {
