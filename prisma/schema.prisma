@@ -67,6 +67,7 @@ model Article {
   matchedLocations         MatchedLocation[]
   notifications            Notification[]
   votes                    ArticleVote[]
+  regulationArticles       RegulationArticle[]
 
   @@index([publishedAt])
   @@index([feedId])
@@ -382,4 +383,74 @@ model DeletedArticle {
   @@index([articleLink])
   @@index([articleGuid])
   @@index([deletedAt])
+}
+
+model Regulator {
+  id              String       @id @default(cuid())
+  slug            String       @unique
+  acronym         String       // e.g., "SEC", "FINRA"
+  fullName        String       // e.g., "Securities and Exchange Commission"
+  description     String?
+  website         String?
+  establishedDate DateTime?
+  jurisdiction    String?      // e.g., "United States", "European Union"
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  regulations     Regulation[]
+  
+  @@index([slug])
+}
+
+model Regulation {
+  id                 String              @id @default(cuid())
+  slug               String              @unique
+  name               String
+  fullName           String?
+  category           String              // e.g., "financial-services"
+  regulatorId        String
+  regulator          Regulator           @relation(fields: [regulatorId], references: [id])
+  enactedDate        DateTime?
+  effectiveDate      DateTime?
+  description        String?
+  scope              String?             // Who is subject to this regulation
+  relatedRegulations String[]            // Array of regulation IDs
+  pdfUrl             String?             // URL to full text PDF
+  rssFeedUrl         String?             // Dedicated RSS feed for this regulation
+  isActive           Boolean             @default(true)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  amendments         Amendment[]
+  articles           RegulationArticle[]
+  
+  @@index([category])
+  @@index([slug])
+}
+
+model Amendment {
+  id            String     @id @default(cuid())
+  regulationId  String
+  regulation    Regulation @relation(fields: [regulationId], references: [id])
+  title         String
+  description   String?
+  effectiveDate DateTime
+  changes       String?    // Detailed description of changes
+  pdfUrl        String?    // Link to amendment document
+  createdAt     DateTime   @default(now())
+  
+  @@index([regulationId])
+  @@index([effectiveDate])
+}
+
+model RegulationArticle {
+  id             String     @id @default(cuid())
+  regulationId   String
+  regulation     Regulation @relation(fields: [regulationId], references: [id])
+  articleId      String
+  article        Article    @relation(fields: [articleId], references: [id])
+  relevanceScore Float?     // AI-determined relevance to regulation
+  createdAt      DateTime   @default(now())
+  
+  @@unique([regulationId, articleId])
+  @@index([regulationId])
 }

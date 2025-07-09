@@ -26,6 +26,9 @@ const syncEntityRoutes = require('./routes/sync-entities');
 const keywordRoutes = require('./routes/keywords');
 const agencyRoutes = require('./routes/agencies');
 const locationRoutes = require('./routes/locations');
+const regulatorRoutes = require('./routes/regulators');
+const regulationRoutes = require('./routes/regulations');
+const amendmentRoutes = require('./routes/amendments');
 
 const app = express();
 const prisma = getPrismaClient();
@@ -75,6 +78,9 @@ app.use('/api/sync-entities', syncEntityRoutes);
 app.use('/api/keywords', keywordRoutes);
 app.use('/api/agencies', agencyRoutes);
 app.use('/api/locations', locationRoutes);
+app.use('/api/regulators', regulatorRoutes);
+app.use('/api/regulations', regulationRoutes);
+app.use('/api/amendments', amendmentRoutes);
 
 // Error handling
 app.use(errorHandler);
