@@ -326,7 +326,159 @@ async function fetchAllActiveFeeds() {
   }
 }
 
+async function fetchRegulationFeeds() {
+  try {
+    // Get all active regulations with RSS feeds
+    const regulations = await prisma.regulation.findMany({
+      where: {
+        isActive: true,
+        rssFeedUrl: { not: null }
+      },
+      include: {
+        regulator: true
+      }
+    });
+    
+    logger.info(`Starting to fetch ${regulations.length} regulation-specific RSS feeds`);
+    
+    for (const regulation of regulations) {
+      try {
+        logger.info(`Fetching RSS feed for regulation: ${regulation.name} (${regulation.rssFeedUrl})`);
+        
+        const parsedFeed = await parser.parseURL(regulation.rssFeedUrl);
+        let newArticles = 0;
+        
+        for (const item of parsedFeed.items) {
+          try {
+            if (!item.link) continue;
+            
+            // Check if article already exists
+            const existingArticle = await prisma.article.findUnique({
+              where: { link: item.link }
+            });
+            
+            if (existingArticle) {
+              // Link existing article to regulation if not already linked
+              const existingLink = await prisma.regulationArticle.findUnique({
+                where: {
+                  regulationId_articleId: {
+                    regulationId: regulation.id,
+                    articleId: existingArticle.id
+                  }
+                }
+              });
+              
+              if (!existingLink) {
+                await prisma.regulationArticle.create({
+                  data: {
+                    regulationId: regulation.id,
+                    articleId: existingArticle.id,
+                    relevanceScore: 0.9 // High relevance since it's from regulation-specific feed
+                  }
+                });
+                logger.info(`Linked existing article to regulation ${regulation.name}`);
+              }
+              continue;
+            }
+            
+            // Parse publish date
+            let publishedAt = new Date();
+            if (item.pubDate) {
+              try {
+                publishedAt = new Date(item.pubDate);
+                if (isNaN(publishedAt.getTime())) {
+                  publishedAt = new Date();
+                }
+              } catch (dateError) {
+                publishedAt = new Date();
+              }
+            }
+            
+            // Extract image URL
+            let imageUrl = null;
+            if (item.enclosure && item.enclosure.url && item.enclosure.type && item.enclosure.type.startsWith('image/')) {
+              imageUrl = item.enclosure.url;
+            } else if (item.image && typeof item.image === 'string') {
+              imageUrl = item.image;
+            }
+            
+            // Clean content
+            const articleTitle = item.title || 'Untitled';
+            const articleDescription = cleanArticleContent(item.contentSnippet || item.summary || item.description || '');
+            const articleContent = cleanArticleContent(item.content || item['content:encoded'] || '');
+            
+            // Generate slug
+            const slug = generateSlug(articleTitle);
+            
+            // Create a pseudo-feed for regulation RSS
+            const feedName = `${regulation.name} Updates`;
+            let regulationFeed = await prisma.rssFeed.findFirst({
+              where: { url: regulation.rssFeedUrl }
+            });
+            
+            if (!regulationFeed) {
+              // Create a feed entry for this regulation RSS
+              regulationFeed = await prisma.rssFeed.create({
+                data: {
+                  name: feedName,
+                  url: regulation.rssFeedUrl,
+                  category: 'REGULATORY',
+                  isActive: true,
+                  lastFetchedAt: new Date()
+                }
+              });
+            }
+            
+            // Create article
+            const article = await prisma.article.create({
+              data: {
+                feedId: regulationFeed.id,
+                title: articleTitle,
+                link: item.link,
+                slug,
+                description: articleDescription,
+                content: articleContent,
+                author: item.creator || item.author || null,
+                publishedAt,
+                guid: item.guid || item.link,
+                categories: ['regulatory', regulation.category, regulation.name.toLowerCase()],
+                imageUrl,
+                hasFullContent: false
+              }
+            });
+            
+            // Link article to regulation
+            await prisma.regulationArticle.create({
+              data: {
+                regulationId: regulation.id,
+                articleId: article.id,
+                relevanceScore: 1.0 // Maximum relevance for regulation-specific feed
+              }
+            });
+            
+            newArticles++;
+            logger.info(`Created regulation article: ${article.title} for ${regulation.name}`);
+            
+          } catch (error) {
+            logger.error(`Error processing regulation article:`, error);
+          }
+        }
+        
+        logger.info(`Processed ${newArticles} new articles for regulation ${regulation.name}`);
+        
+      } catch (error) {
+        logger.error(`Error fetching regulation feed for ${regulation.name}:`, error);
+      }
+    }
+    
+    logger.info('Completed fetching all regulation feeds');
+  } catch (error) {
+    logger.error('Error in fetchRegulationFeeds:', error);
+  }
+}
+
 module.exports = {
   fetchAndProcessFeed,
-  fetchAllActiveFeeds
+  fetchAllActiveFeeds,
+  fetchRegulationFeeds
 };

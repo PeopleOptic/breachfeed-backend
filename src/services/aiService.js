@@ -1401,6 +1401,80 @@ Format your response as JSON with these exact fields:
       businessModel: 'Unknown'
     };
   }
+
+  /**
+   * Answer questions about regulations using AI
+   */
+  static async answerRegulationQuestion(regulation, question) {
+    try {
+      if (!process.env.ANTHROPIC_API_KEY) {
+        return 'AI Q&A is not configured. Please contact support for assistance.';
+      }
+
+      // Build comprehensive context about the regulation
+      const context = `
+Regulation: ${regulation.name} ${regulation.fullName ? `(${regulation.fullName})` : ''}
+Category: ${regulation.category}
+Regulator: ${regulation.regulator ? `${regulation.regulator.acronym} - ${regulation.regulator.fullName}` : 'Unknown'}
+${regulation.enactedDate ? `Enacted: ${new Date(regulation.enactedDate).toDateString()}` : ''}
+${regulation.effectiveDate ? `Effective: ${new Date(regulation.effectiveDate).toDateString()}` : ''}
+
+Description:
+${regulation.description || 'No description available.'}
+
+Scope:
+${regulation.scope || 'No scope information available.'}
+
+${regulation.amendments && regulation.amendments.length > 0 ? `
+Recent Amendments:
+${regulation.amendments.slice(0, 3).map(a => 
+  `- ${a.title} (Effective: ${new Date(a.effectiveDate).toDateString()})
+   ${a.description || ''}`
+).join('\n')}` : ''}
+
+User Question: ${question}
+`;
+
+      const response = await anthropic.messages.create({
+        model: 'claude-3-haiku-20240307',
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: `You are a helpful regulatory compliance assistant. Answer the following question about a regulation based on the provided context. Be accurate, concise, and helpful. If the context doesn't contain enough information to fully answer the question, acknowledge this and provide what information you can.
+
+${context}
+
+Important guidelines:
+1. Base your answer primarily on the provided context
+2. Be clear about what the regulation requires
+3. If relevant, mention any recent amendments
+4. Keep the response focused and practical
+5. Always remind users to consult legal professionals for specific compliance advice`
+        }]
+      });
+
+      if (response.content && response.content.length > 0) {
+        return response.content[0].text;
+      }
+
+      return 'Unable to generate a response. Please try again.';
+      
+    } catch (error) {
+      logger.error('Error answering regulation question:', error);
+      
+      // Fallback response
+      return `I can help you understand ${regulation.name}, which is a ${regulation.category.replace('-', ' ')} regulation${regulation.regulator ? ` overseen by ${regulation.regulator.acronym}` : ''}. 
+
+${regulation.description ? regulation.description : 'This regulation addresses compliance requirements in its sector.'}
+
+For specific questions about compliance requirements, I recommend:
+1. Reviewing the full regulation text
+2. Consulting with legal counsel
+3. Checking for recent amendments or guidance from the regulator
+
+Please note: This is general information only. Always consult with qualified legal professionals for specific compliance advice.`;
+    }
+  }
 }
 
 module.exports = AIService;

@@ -472,4 +472,49 @@ router.post('/:slug/ask', async (req, res) => {
   }
 });
 
+// AI Q&A endpoint for regulations
+router.post('/:slug/ask', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const { question } = req.body;
+    
+    if (!question || question.trim().length === 0) {
+      return res.status(400).json({ error: 'Question is required' });
+    }
+    
+    // Get regulation details
+    const regulation = await prisma.regulation.findUnique({
+      where: { slug },
+      include: {
+        regulator: true,
+        amendments: {
+          orderBy: { effectiveDate: 'desc' }
+        }
+      }
+    });
+    
+    if (!regulation) {
+      return res.status(404).json({ error: 'Regulation not found' });
+    }
+    
+    // Import AI service
+    const AIService = require('../services/aiService');
+    
+    // Generate context-aware response
+    const answer = await AIService.answerRegulationQuestion(regulation, question);
+    
+    res.json({
+      question,
+      answer,
+      regulation: {
+        name: regulation.name,
+        fullName: regulation.fullName
+      }
+    });
+  } catch (error) {
+    console.error('Error processing regulation Q&A:', error);
+    res.status(500).json({ error: 'Failed to process question' });
+  }
+});
+
 module.exports = router;

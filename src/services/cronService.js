@@ -1,6 +1,6 @@
 const cron = require('node-cron');
 const logger = require('../utils/logger');
-const { fetchAllActiveFeeds } = require('./rssService');
+const { fetchAllActiveFeeds, fetchRegulationFeeds } = require('./rssService');
 const { cleanupOldNotifications } = require('./cleanupService');
 
 async function startCronJobs() {
@@ -8,6 +8,12 @@ async function startCronJobs() {
   cron.schedule('*/5 * * * *', async () => {
     logger.info('Starting scheduled RSS feed fetch');
     await fetchAllActiveFeeds();
+  });
+  
+  // Fetch regulation-specific RSS feeds every 30 minutes
+  cron.schedule('*/30 * * * *', async () => {
+    logger.info('Starting scheduled regulation RSS feed fetch');
+    await fetchRegulationFeeds();
   });
   
   // Cleanup old notifications daily at 2 AM
