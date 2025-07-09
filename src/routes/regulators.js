@@ -8,10 +8,13 @@ router.get('/', async (req, res) => {
   try {
     const { isActive = true } = req.query;
     
+    const where = {};
+    if (isActive !== 'all') {
+      where.isActive = isActive === 'true';
+    }
+    
     const regulators = await prisma.regulator.findMany({
-      where: {
-        isActive: isActive === 'true'
-      },
+      where,
       include: {
         _count: {
           select: {
